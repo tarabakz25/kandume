@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
@@ -620,13 +620,55 @@ impl App {
     }
 
     fn close_active_pane(&mut self) -> Result<()> {
-        let Some(window) = self.active_window_mut() else {
-            return Ok(());
+        let ap = self.active_project;
+
+        let (closes_window, win_idx) = match self.projects.get(ap) {
+            None => return Ok(()),
+            Some(p) => {
+                let wi = p.active_window;
+                match p.windows.get(wi) {
+                    None => return Ok(()),
+                    Some(w) => (w.panes.len() <= 1, wi),
+                }
+            }
         };
 
-        if window.panes.len() <= 1 {
-            bail!("cannot close the last pane in a window");
+        if closes_window {
+            let emptied_project = {
+                let Some(project) = self.projects.get_mut(ap) else {
+                    return Ok(());
+                };
+                project.windows.remove(win_idx);
+                project.windows.is_empty()
+            };
+
+            if emptied_project {
+                let cwd = dirs::home_dir().context("failed to resolve home directory")?;
+                let name = project_name(&cwd);
+                let window = self.new_window_for_cwd(cwd.clone(), "window 1".to_string())?;
+                let Some(project) = self.projects.get_mut(ap) else {
+                    return Ok(());
+                };
+                project.name = name;
+                project.cwd = cwd;
+                project.windows = vec![window];
+                project.active_window = 0;
+                return self.resize_all_panes();
+            }
+
+            let Some(project) = self.projects.get_mut(ap) else {
+                return Ok(());
+            };
+            project.active_window = win_idx.saturating_sub(1);
+            return self.resize_all_panes();
         }
+
+        let Some(project) = self.projects.get_mut(ap) else {
+            return Ok(());
+        };
+        let Some(window) = project.windows.get_mut(win_idx) else {
+            return Ok(());
+        };
 
         window.panes.remove(window.active_pane);
         window.layout = std::mem::replace(&mut window.layout, PaneNode::Leaf(0))

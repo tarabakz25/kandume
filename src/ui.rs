@@ -71,11 +71,7 @@ fn draw_projects(frame: &mut Frame<'_>, app: &App, area: Rect) {
             } else {
                 Style::default().fg(Color::Gray)
             };
-            let session_count = project
-                .windows
-                .iter()
-                .map(|window| window.panes.len())
-                .sum::<usize>();
+            let session_count = project.windows.len();
             ListItem::new(Line::from(format!(
                 "{marker} {} {}  {} sessions",
                 index + 1,
@@ -106,7 +102,7 @@ fn draw_workspace(frame: &mut Frame<'_>, app: &App, area: Rect) {
     if let Some(window) = app.active_window() {
         draw_panes(frame, window, chunks[1]);
     } else {
-        frame.render_widget(Paragraph::new("no window"), chunks[1]);
+        frame.render_widget(Paragraph::new("no session"), chunks[1]);
     }
 }
 
@@ -312,7 +308,7 @@ fn terminal_color(color: vt100::Color) -> Option<Color> {
 fn draw_status(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let line = match &app.rename_state {
         RenameState::Project { buffer } => rename_line("rename project: ", buffer),
-        RenameState::Window { buffer } => rename_line("rename window: ", buffer),
+        RenameState::Window { buffer } => rename_line("rename session: ", buffer),
         RenameState::Pane { buffer } => rename_line("rename pane: ", buffer),
         RenameState::Idle => {
             let prefix = if app.prefix_active {
@@ -326,7 +322,7 @@ fn draw_status(frame: &mut Frame<'_>, app: &App, area: Rect) {
             Line::from(vec![
                 prefix,
                 Span::raw(
-                    " t:project c:window %/\":split n/p:project [/]:window o/;:pane x:close ,/./r:rename d:save+quit ?:help",
+                    " t:project c:session %/\":split n/p:project [/]:session o/;:pane x:close-pane ,/./r:rename d:save+quit ?:help",
                 ),
             ])
         }
@@ -356,19 +352,19 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
         )),
         Line::from(""),
         Line::from("Ctrl-b t    new project"),
-        Line::from("Ctrl-b c    new window page in current project"),
-        Line::from("Ctrl-b %    split current window vertically"),
-        Line::from("Ctrl-b \"    split current window horizontally"),
+        Line::from("Ctrl-b c    new session in current project"),
+        Line::from("Ctrl-b %    split current session vertically"),
+        Line::from("Ctrl-b \"    split current session horizontally"),
         Line::from("Ctrl-b n    next project"),
         Line::from("Ctrl-b p    previous project"),
         Line::from("Ctrl-b 1-9  select project"),
-        Line::from("Ctrl-b ]    next window page"),
-        Line::from("Ctrl-b [    previous window page"),
+        Line::from("Ctrl-b ]    next session"),
+        Line::from("Ctrl-b [    previous session"),
         Line::from("Ctrl-b o    next pane"),
         Line::from("Ctrl-b ;    previous pane"),
-        Line::from("Ctrl-b x    close current pane"),
+        Line::from("Ctrl-b x    close pane (last pane closes session → prior session; lone session → home project)"),
         Line::from("Ctrl-b ,    rename project"),
-        Line::from("Ctrl-b .    rename window"),
+        Line::from("Ctrl-b .    rename session"),
         Line::from("Ctrl-b r    rename pane"),
         Line::from("Ctrl-b d    save session and quit"),
         Line::from("Ctrl-b q    quit"),

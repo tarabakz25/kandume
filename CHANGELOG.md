@@ -3,6 +3,8 @@
 ## Unreleased
 
 - chore(brew): point stable `Formula/kandume.rb` tarball at v0.1.1 with checksum.
+- Close pane (`Ctrl-b x`): closing the last pane removes the session and focuses the previous session; if it was the only session, the current project slot is reset to a new home-directory project with one pane.
+- UI copy: call the middle tier **session** (not window/tab); sidebar lists session count per project.
 
 ## [0.1.1] - 2026-05-04
 
