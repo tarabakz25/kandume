@@ -201,10 +201,6 @@ pub(crate) fn default_shell() -> String {
     env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
 }
 
-pub(crate) fn default_cwd() -> Result<PathBuf> {
-    env::current_dir().context("failed to resolve current directory")
-}
-
 pub(crate) fn normalize_cwd(path: &Path) -> PathBuf {
     path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }

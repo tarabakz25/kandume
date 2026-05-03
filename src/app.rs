@@ -4,18 +4,24 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Result, bail};
-use crossterm::event::{self, Event, KeyCode, KeyEvent};
+use anyhow::{Context, Result, bail};
+use crossterm::event::{
+    self, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::layout::Rect;
 
 use crate::{
     input::{InputAction, InputState, encode_key},
+    layout,
     session::{
         self, SessionPaneLayout, SessionProject, SessionState, SessionWindow, SplitDirection,
     },
-    terminal::{TerminalTab, default_cwd, normalize_cwd},
+    terminal::{TerminalTab, normalize_cwd},
 };
 
 pub(crate) const SIDEBAR_WIDTH: u16 = 30;
+/// Sidebar header rows (title + version). Must match `draw_projects` in [`crate::ui`].
+pub(crate) const SIDEBAR_HEADER_HEIGHT: u16 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RenameState {
@@ -61,6 +67,9 @@ pub(crate) struct App {
     next_tab_id: u64,
     terminal_cols: u16,
     terminal_rows: u16,
+    screen_cols: u16,
+    screen_rows: u16,
+    mouse_grab_pane: Option<usize>,
     should_quit: bool,
 }
 
@@ -82,6 +91,9 @@ impl App {
             next_tab_id: 1,
             terminal_cols,
             terminal_rows,
+            screen_cols: cols,
+            screen_rows: rows,
+            mouse_grab_pane: None,
             should_quit: false,
         };
 
@@ -111,8 +123,10 @@ impl App {
         if event::poll(Duration::from_millis(16))? {
             match event::read()? {
                 Event::Key(key) => self.handle_key(key)?,
+                Event::Mouse(ev) => self.handle_mouse(ev)?,
                 Event::Resize(cols, rows) => self.resize(cols, rows)?,
-                Event::FocusGained | Event::FocusLost | Event::Mouse(_) | Event::Paste(_) => {}
+                Event::FocusGained | Event::FocusLost => {}
+                Event::Paste(_) => {}
             }
         }
 
@@ -232,6 +246,188 @@ impl App {
         Ok(())
     }
 
+    fn handle_mouse(&mut self, ev: MouseEvent) -> Result<()> {
+        if self.show_help {
+            return Ok(());
+        }
+        if !matches!(self.rename_state, RenameState::Idle) {
+            return Ok(());
+        }
+
+        let area = Rect::new(0, 0, self.screen_cols, self.screen_rows);
+        let root = layout::compute_root_areas(area);
+
+        if layout::pointer_in_rect(root.sidebar, ev.column, ev.row) {
+            if matches!(ev.kind, MouseEventKind::Down(MouseButton::Left)) {
+                if let Some(idx) = layout::hit_project_row(
+                    root.projects_inner,
+                    ev.column,
+                    ev.row,
+                    self.projects.len(),
+                ) {
+                    self.select_project(idx);
+                    self.mouse_grab_pane = None;
+                }
+            }
+            return Ok(());
+        }
+
+        let hit = self
+            .active_window()
+            .and_then(|window| layout::hit_test_pane_stack(window, root.pane_stack, ev.column, ev.row));
+
+        match ev.kind {
+            MouseEventKind::Up(_) => {
+                if let Some(pi) = self.mouse_grab_pane {
+                    let (lc, lr) = self.mouse_local_for_pane(pi, ev.column, ev.row, &root);
+                    if let Some((pcols, prows)) = self.pane_pty_size(pi) {
+                        self.write_mouse_to_pane(pi, ev.kind, ev.modifiers, lc, lr, pcols, prows)?;
+                    }
+                }
+                self.mouse_grab_pane = None;
+            }
+            MouseEventKind::Drag(_) => {
+                if let Some(pi) = self.mouse_grab_pane {
+                    let (lc, lr) = self.mouse_local_for_pane(pi, ev.column, ev.row, &root);
+                    if let Some((pcols, prows)) = self.pane_pty_size(pi) {
+                        self.write_mouse_to_pane(pi, ev.kind, ev.modifiers, lc, lr, pcols, prows)?;
+                    }
+                }
+            }
+            // Hover-only motion (CSI cb 35…): never send to the PTY — shells show fragments as junk.
+            MouseEventKind::Moved => {}
+            MouseEventKind::ScrollDown
+            | MouseEventKind::ScrollUp
+            | MouseEventKind::ScrollLeft
+            | MouseEventKind::ScrollRight => {
+                match hit {
+                    Some(layout::PaneHit::Terminal {
+                        pane,
+                        local_col,
+                        local_row,
+                    }) => {
+                        if let Some(window) = self.active_window_mut() {
+                            window.active_pane = pane;
+                        }
+                        if let Some((pcols, prows)) = self.pane_pty_size(pane) {
+                            self.write_mouse_to_pane(
+                                pane,
+                                ev.kind,
+                                ev.modifiers,
+                                local_col,
+                                local_row,
+                                pcols,
+                                prows,
+                            )?;
+                        }
+                    }
+                    Some(layout::PaneHit::Title(pi)) => {
+                        if let Some(window) = self.active_window_mut() {
+                            window.active_pane = pi;
+                        }
+                    }
+                    None => {}
+                }
+            }
+            MouseEventKind::Down(_) => {
+                match hit {
+                    Some(layout::PaneHit::Title(pi)) => {
+                        if let Some(window) = self.active_window_mut() {
+                            window.active_pane = pi;
+                        }
+                        self.mouse_grab_pane = None;
+                    }
+                    Some(layout::PaneHit::Terminal {
+                        pane,
+                        local_col,
+                        local_row,
+                    }) => {
+                        if let Some(window) = self.active_window_mut() {
+                            window.active_pane = pane;
+                        }
+                        self.mouse_grab_pane = Some(pane);
+                        if let Some((pcols, prows)) = self.pane_pty_size(pane) {
+                            self.write_mouse_to_pane(
+                                pane,
+                                ev.kind,
+                                ev.modifiers,
+                                local_col,
+                                local_row,
+                                pcols,
+                                prows,
+                            )?;
+                        }
+                    }
+                    None => {
+                        self.mouse_grab_pane = None;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn mouse_local_for_pane(
+        &self,
+        pane_index: usize,
+        col: u16,
+        row: u16,
+        root: &layout::RootAreas,
+    ) -> (u16, u16) {
+        let Some(window) = self.active_window() else {
+            return (0, 0);
+        };
+        let Some(term_rect) =
+            layout::pane_terminal_rect(window, &window.layout, root.pane_stack, pane_index)
+        else {
+            return (0, 0);
+        };
+        let lc = col.saturating_sub(term_rect.x);
+        let lr = row.saturating_sub(term_rect.y);
+        let Some(pane) = window.panes.get(pane_index) else {
+            return (0, 0);
+        };
+        let (rows, cols) = pane.screen().size();
+        let max_c = u16::try_from(cols.saturating_sub(1)).unwrap_or(0);
+        let max_r = u16::try_from(rows.saturating_sub(1)).unwrap_or(0);
+        (lc.min(max_c), lr.min(max_r))
+    }
+
+    fn pane_pty_size(&self, pane_index: usize) -> Option<(u16, u16)> {
+        let window = self.active_window()?;
+        let pane = window.panes.get(pane_index)?;
+        let (rows, cols) = pane.screen().size();
+        Some((
+            u16::try_from(cols).unwrap_or(u16::MAX),
+            u16::try_from(rows).unwrap_or(u16::MAX),
+        ))
+    }
+
+    fn write_mouse_to_pane(
+        &mut self,
+        pane_index: usize,
+        kind: MouseEventKind,
+        modifiers: KeyModifiers,
+        lc: u16,
+        lr: u16,
+        cols: u16,
+        rows: u16,
+    ) -> Result<()> {
+        let Some(bytes) = crate::mouse::encode_sgr_mouse(kind, modifiers, lc, lr, cols, rows)
+        else {
+            return Ok(());
+        };
+        let Some(window) = self.active_window_mut() else {
+            return Ok(());
+        };
+        let Some(pane) = window.panes.get_mut(pane_index) else {
+            return Ok(());
+        };
+        pane.write_input(&bytes)?;
+        Ok(())
+    }
+
     fn handle_rename_key(&mut self, key: KeyEvent) -> bool {
         let should_close = matches!(key.code, KeyCode::Enter | KeyCode::Esc);
         let handled = match &mut self.rename_state {
@@ -285,7 +481,7 @@ impl App {
     }
 
     fn new_project(&mut self) -> Result<()> {
-        let cwd = default_cwd()?;
+        let cwd = dirs::home_dir().context("failed to resolve home directory")?;
         let name = project_name(&cwd);
         let window = self.new_window_for_cwd(cwd.clone(), "window 1".to_string())?;
         self.projects.push(Project {
@@ -505,6 +701,8 @@ impl App {
     }
 
     fn resize(&mut self, cols: u16, rows: u16) -> Result<()> {
+        self.screen_cols = cols;
+        self.screen_rows = rows;
         self.terminal_cols = cols.saturating_sub(SIDEBAR_WIDTH).max(1);
         self.terminal_rows = rows.saturating_sub(3).max(1);
         self.resize_all_panes()

@@ -8,25 +8,18 @@ use ratatui::{
 use vt100::{Cell, Screen};
 
 use crate::{
-    app::{App, PaneNode, RenameState, SIDEBAR_WIDTH, WindowPage},
+    app::{App, PaneNode, RenameState, SIDEBAR_HEADER_HEIGHT, WindowPage},
+    layout,
     session::SplitDirection,
     terminal::{TerminalStatus, TerminalTab},
 };
 
 pub(crate) fn draw(frame: &mut Frame<'_>, app: &App) {
-    let vertical = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(1)])
-        .split(frame.area());
+    let areas = layout::compute_root_areas(frame.area());
 
-    let body = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(SIDEBAR_WIDTH), Constraint::Min(1)])
-        .split(vertical[0]);
-
-    draw_projects(frame, app, body[0]);
-    draw_workspace(frame, app, body[1]);
-    draw_status(frame, app, vertical[1]);
+    draw_projects(frame, app, areas.sidebar);
+    draw_workspace(frame, app, areas.workspace);
+    draw_status(frame, app, areas.status);
 
     if app.show_help {
         draw_help(frame, centered_rect(72, 68, frame.area()));
@@ -34,6 +27,33 @@ pub(crate) fn draw(frame: &mut Frame<'_>, app: &App) {
 }
 
 fn draw_projects(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let sidebar_vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(SIDEBAR_HEADER_HEIGHT),
+            Constraint::Min(1),
+        ])
+        .split(area);
+
+    let header = Paragraph::new(vec![
+        Line::from(Span::styled(
+            " kandume",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            format!(" v{}", env!("CARGO_PKG_VERSION")),
+            Style::default().fg(Color::DarkGray),
+        )),
+    ])
+    .block(
+        Block::default()
+            .borders(Borders::RIGHT)
+            .border_style(Style::default().fg(Color::DarkGray)),
+    );
+    frame.render_widget(header, sidebar_vertical[0]);
+
     let items: Vec<ListItem<'_>> = app
         .projects
         .iter()
@@ -72,7 +92,7 @@ fn draw_projects(frame: &mut Frame<'_>, app: &App, area: Rect) {
             .borders(Borders::RIGHT)
             .border_style(Style::default().fg(Color::DarkGray)),
     );
-    frame.render_widget(projects, area);
+    frame.render_widget(projects, sidebar_vertical[1]);
 }
 
 fn draw_workspace(frame: &mut Frame<'_>, app: &App, area: Rect) {
