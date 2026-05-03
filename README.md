@@ -10,6 +10,33 @@
 
 ## インストール
 
+### Homebrew（macOS / Linuxbrew）
+
+このリポジトリを [Homebrew tap](https://docs.brew.sh/Taps) として登録してからインストールします。
+
+```sh
+brew tap tarabakz25/kandume https://github.com/tarabakz25/kandume.git
+brew install kandume
+```
+
+開発ブランチの最新を入れる場合は次です。
+
+```sh
+brew install kandume --HEAD
+```
+
+`--HEAD` は tap 先の `develop` をビルドします。
+
+リリース後に Formula の tarball を新しいタグへ更新するときは、次で `sha256` を取得して `Formula/kandume.rb` の `url` / `sha256` を合わせてください。
+
+```sh
+curl -sL "https://github.com/tarabakz25/kandume/archive/refs/tags/v0.1.1.tar.gz" | shasum -a 256
+```
+
+（`v0.1.1` は実際のタグ名に読み替え。）
+
+### ソースから
+
 リポジトリをクローンしてリリースビルドします。
 
 ```sh

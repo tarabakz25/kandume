@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Homebrew: add `Formula/kandume.rb` so the repo can be used as `brew tap tarabakz25/kandume https://github.com/tarabakz25/kandume.git` and installed with `brew install kandume` (stable tarball v0.1.0) or `brew install kandume --HEAD` (branch `develop`).
+- CLI: support `--version` / `-V` before starting the TUI (prints `CARGO_PKG_VERSION`).
 - Added Japanese `README.md` with install, keybindings, mouse, and session file location.
 
 ## [0.1.0] - 2026-05-04
