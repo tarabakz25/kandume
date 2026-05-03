@@ -23,6 +23,12 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 fn main() -> Result<()> {
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.iter().any(|a| a == "--version" || a == "-V") {
+        println!("kandume {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     install_panic_hook();
 
     enable_raw_mode()?;
