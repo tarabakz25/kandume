@@ -4,12 +4,21 @@ use std::{
     path::{Path, PathBuf},
     sync::mpsc::Sender,
     thread,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use crate::session::SessionTab;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TerminalStatus {
+    Running,
+    Active,
+    Completed,
+    Failed,
+}
 
 pub(crate) struct TerminalTab {
     pub(crate) id: u64,
@@ -20,6 +29,8 @@ pub(crate) struct TerminalTab {
     writer: Box<dyn Write + Send>,
     master: Box<dyn MasterPty + Send>,
     child: Box<dyn Child + Send + Sync>,
+    status: TerminalStatus,
+    last_activity: Instant,
 }
 
 impl TerminalTab {
@@ -82,6 +93,8 @@ impl TerminalTab {
             writer,
             master: pair.master,
             child,
+            status: TerminalStatus::Running,
+            last_activity: Instant::now(),
         })
     }
 
@@ -115,6 +128,40 @@ impl TerminalTab {
 
     pub(crate) fn process_output(&mut self, bytes: &[u8]) {
         self.parser.process(bytes);
+        self.last_activity = Instant::now();
+        if self.status == TerminalStatus::Running {
+            self.status = TerminalStatus::Active;
+        }
+    }
+
+    pub(crate) fn refresh_status(&mut self) {
+        if matches!(
+            self.status,
+            TerminalStatus::Completed | TerminalStatus::Failed
+        ) {
+            return;
+        }
+
+        match self.child.try_wait() {
+            Ok(Some(status)) => {
+                self.status = if status.success() {
+                    TerminalStatus::Completed
+                } else {
+                    TerminalStatus::Failed
+                };
+            }
+            Ok(None) if self.last_activity.elapsed() > Duration::from_millis(900) => {
+                self.status = TerminalStatus::Running;
+            }
+            Ok(None) => {}
+            Err(_) => {
+                self.status = TerminalStatus::Failed;
+            }
+        }
+    }
+
+    pub(crate) fn status(&self) -> TerminalStatus {
+        self.status
     }
 
     pub(crate) fn resize(&mut self, cols: u16, rows: u16) -> Result<()> {

@@ -9,7 +9,9 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent};
 
 use crate::{
     input::{InputAction, InputState, encode_key},
-    session::{self, SessionProject, SessionState, SessionWindow, SplitDirection},
+    session::{
+        self, SessionPaneLayout, SessionProject, SessionState, SessionWindow, SplitDirection,
+    },
     terminal::{TerminalTab, default_cwd, normalize_cwd},
 };
 
@@ -34,7 +36,17 @@ pub(crate) struct WindowPage {
     pub(crate) name: String,
     pub(crate) panes: Vec<TerminalTab>,
     pub(crate) active_pane: usize,
-    pub(crate) split_direction: SplitDirection,
+    pub(crate) layout: PaneNode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PaneNode {
+    Leaf(usize),
+    Split {
+        direction: SplitDirection,
+        first: Box<PaneNode>,
+        second: Box<PaneNode>,
+    },
 }
 
 pub(crate) struct App {
@@ -94,6 +106,7 @@ impl App {
 
     pub(crate) fn tick(&mut self) -> Result<bool> {
         self.drain_pty_output();
+        self.refresh_terminal_statuses();
 
         if event::poll(Duration::from_millis(16))? {
             match event::read()? {
@@ -172,7 +185,11 @@ impl App {
         Ok(WindowPage {
             name: window.name,
             active_pane: window.active_pane.min(panes.len() - 1),
-            split_direction: window.split_direction,
+            layout: window
+                .layout
+                .map(PaneNode::from_session_layout)
+                .unwrap_or_else(|| PaneNode::from_flat_panes(panes.len(), window.split_direction))
+                .sanitize(panes.len()),
             panes,
         })
     }
@@ -216,30 +233,54 @@ impl App {
     }
 
     fn handle_rename_key(&mut self, key: KeyEvent) -> bool {
-        match &mut self.rename_state {
+        let should_close = matches!(key.code, KeyCode::Enter | KeyCode::Esc);
+        let handled = match &mut self.rename_state {
             RenameState::Idle => false,
+            RenameState::Project { buffer } => apply_rename_key(key, buffer),
+            RenameState::Window { buffer } => apply_rename_key(key, buffer),
+            RenameState::Pane { buffer } => apply_rename_key(key, buffer),
+        };
+
+        if key.code == KeyCode::Enter {
+            self.apply_rename();
+        }
+        if should_close {
+            self.rename_state = RenameState::Idle;
+        }
+
+        handled
+    }
+
+    fn apply_rename(&mut self) {
+        match &self.rename_state {
+            RenameState::Idle => {}
             RenameState::Project { buffer } => {
-                apply_rename_key(key, buffer, |name| {
-                    if let Some(project) = self.projects.get_mut(self.active_project) {
-                        project.name = name;
-                    }
-                })
+                let name = buffer.trim();
+                if !name.is_empty()
+                    && let Some(project) = self.projects.get_mut(self.active_project)
+                {
+                    project.name = name.to_string();
+                }
             }
-            RenameState::Window { buffer } => apply_rename_key(key, buffer, |name| {
-                if let Some(project) = self.projects.get_mut(self.active_project)
+            RenameState::Window { buffer } => {
+                let name = buffer.trim();
+                if !name.is_empty()
+                    && let Some(project) = self.projects.get_mut(self.active_project)
                     && let Some(window) = project.windows.get_mut(project.active_window)
                 {
-                    window.name = name;
+                    window.name = name.to_string();
                 }
-            }),
-            RenameState::Pane { buffer } => apply_rename_key(key, buffer, |name| {
-                if let Some(project) = self.projects.get_mut(self.active_project)
+            }
+            RenameState::Pane { buffer } => {
+                let name = buffer.trim();
+                if !name.is_empty()
+                    && let Some(project) = self.projects.get_mut(self.active_project)
                     && let Some(window) = project.windows.get_mut(project.active_window)
                     && let Some(pane) = window.panes.get_mut(window.active_pane)
                 {
-                    pane.name = name;
+                    pane.name = name.to_string();
                 }
-            }),
+            }
         }
     }
 
@@ -277,7 +318,7 @@ impl App {
             name,
             panes: vec![self.spawn_pane(cwd, "pane 1".to_string())?],
             active_pane: 0,
-            split_direction: SplitDirection::Vertical,
+            layout: PaneNode::Leaf(0),
         })
     }
 
@@ -294,14 +335,17 @@ impl App {
             .active_terminal()
             .map(|pane| normalize_cwd(&pane.cwd))
             .unwrap_or_else(|| normalize_cwd(&project.cwd));
+        let split_target = window.active_pane;
         let name = format!("pane {}", window.panes.len() + 1);
         let pane = self.spawn_pane(cwd, name)?;
 
         let project = &mut self.projects[active_project];
         let window = &mut project.windows[project.active_window];
-        window.split_direction = direction;
         window.panes.push(pane);
         window.active_pane = window.panes.len() - 1;
+        window
+            .layout
+            .split_leaf(split_target, window.active_pane, direction);
         self.resize_all_panes()
     }
 
@@ -389,7 +433,12 @@ impl App {
         }
 
         window.panes.remove(window.active_pane);
+        window.layout = std::mem::replace(&mut window.layout, PaneNode::Leaf(0))
+            .remove_leaf(window.active_pane);
+        window.layout.shift_after_removed(window.active_pane);
         window.active_pane = window.active_pane.min(window.panes.len() - 1);
+        window.layout =
+            std::mem::replace(&mut window.layout, PaneNode::Leaf(0)).sanitize(window.panes.len());
         self.resize_all_panes()
     }
 
@@ -445,6 +494,16 @@ impl App {
         }
     }
 
+    fn refresh_terminal_statuses(&mut self) {
+        for project in &mut self.projects {
+            for window in &mut project.windows {
+                for pane in &mut window.panes {
+                    pane.refresh_status();
+                }
+            }
+        }
+    }
+
     fn resize(&mut self, cols: u16, rows: u16) -> Result<()> {
         self.terminal_cols = cols.saturating_sub(SIDEBAR_WIDTH).max(1);
         self.terminal_rows = rows.saturating_sub(3).max(1);
@@ -454,14 +513,16 @@ impl App {
     fn resize_all_panes(&mut self) -> Result<()> {
         for project in &mut self.projects {
             for window in &mut project.windows {
-                let pane_count = window.panes.len().max(1) as u16;
-                let (cols, rows) = pane_size(
-                    self.terminal_cols,
-                    self.terminal_rows,
-                    window.split_direction,
-                    pane_count,
-                );
-                for pane in &mut window.panes {
+                let sizes = window
+                    .layout
+                    .pane_sizes(self.terminal_cols, self.terminal_rows);
+                for (pane_index, pane) in window.panes.iter_mut().enumerate() {
+                    let (cols, rows) = sizes
+                        .iter()
+                        .find_map(|(index, cols, rows)| {
+                            (*index == pane_index).then_some((*cols, *rows))
+                        })
+                        .unwrap_or((self.terminal_cols, self.terminal_rows));
                     pane.resize(cols, rows)?;
                 }
             }
@@ -482,7 +543,11 @@ impl Project {
             name: self.name.clone(),
             cwd: self.cwd.clone(),
             active_window: self.active_window,
-            windows: self.windows.iter().map(WindowPage::session_window).collect(),
+            windows: self
+                .windows
+                .iter()
+                .map(WindowPage::session_window)
+                .collect(),
         }
     }
 }
@@ -492,20 +557,208 @@ impl WindowPage {
         SessionWindow {
             name: self.name.clone(),
             active_pane: self.active_pane,
-            split_direction: self.split_direction,
+            split_direction: self
+                .layout
+                .first_split_direction()
+                .unwrap_or(SplitDirection::Vertical),
+            layout: Some(self.layout.session_layout()),
             panes: self.panes.iter().map(TerminalTab::session_tab).collect(),
         }
     }
 }
 
-fn apply_rename_key(key: KeyEvent, buffer: &mut String, mut apply: impl FnMut(String)) -> bool {
-    match key.code {
-        KeyCode::Enter => {
-            let name = buffer.trim().to_string();
-            if !name.is_empty() {
-                apply(name);
+impl PaneNode {
+    fn from_session_layout(layout: SessionPaneLayout) -> Self {
+        match layout {
+            SessionPaneLayout::Leaf(index) => Self::Leaf(index),
+            SessionPaneLayout::Split {
+                direction,
+                first,
+                second,
+            } => Self::Split {
+                direction,
+                first: Box::new(Self::from_session_layout(*first)),
+                second: Box::new(Self::from_session_layout(*second)),
+            },
+        }
+    }
+
+    fn from_flat_panes(pane_count: usize, direction: SplitDirection) -> Self {
+        let mut layout = Self::Leaf(0);
+        for index in 1..pane_count {
+            layout = Self::Split {
+                direction,
+                first: Box::new(layout),
+                second: Box::new(Self::Leaf(index)),
+            };
+        }
+        layout
+    }
+
+    fn session_layout(&self) -> SessionPaneLayout {
+        match self {
+            Self::Leaf(index) => SessionPaneLayout::Leaf(*index),
+            Self::Split {
+                direction,
+                first,
+                second,
+            } => SessionPaneLayout::Split {
+                direction: *direction,
+                first: Box::new(first.session_layout()),
+                second: Box::new(second.session_layout()),
+            },
+        }
+    }
+
+    fn first_split_direction(&self) -> Option<SplitDirection> {
+        match self {
+            Self::Leaf(_) => None,
+            Self::Split { direction, .. } => Some(*direction),
+        }
+    }
+
+    fn split_leaf(
+        &mut self,
+        old_index: usize,
+        new_index: usize,
+        direction: SplitDirection,
+    ) -> bool {
+        match self {
+            Self::Leaf(index) if *index == old_index => {
+                *self = Self::Split {
+                    direction,
+                    first: Box::new(Self::Leaf(old_index)),
+                    second: Box::new(Self::Leaf(new_index)),
+                };
+                true
+            }
+            Self::Leaf(_) => false,
+            Self::Split { first, second, .. } => {
+                first.split_leaf(old_index, new_index, direction)
+                    || second.split_leaf(old_index, new_index, direction)
             }
         }
+    }
+
+    fn remove_leaf(self, removed_index: usize) -> Self {
+        match self {
+            Self::Leaf(_) => Self::Leaf(0),
+            Self::Split {
+                direction,
+                first,
+                second,
+            } => {
+                let first_has = first.contains_leaf(removed_index);
+                let second_has = second.contains_leaf(removed_index);
+
+                match (first_has, second_has) {
+                    (true, false) if first.is_single_leaf() => *second,
+                    (false, true) if second.is_single_leaf() => *first,
+                    (true, false) => Self::Split {
+                        direction,
+                        first: Box::new(first.remove_leaf(removed_index)),
+                        second,
+                    },
+                    (false, true) => Self::Split {
+                        direction,
+                        first,
+                        second: Box::new(second.remove_leaf(removed_index)),
+                    },
+                    _ => Self::Split {
+                        direction,
+                        first,
+                        second,
+                    },
+                }
+            }
+        }
+    }
+
+    fn contains_leaf(&self, needle: usize) -> bool {
+        match self {
+            Self::Leaf(index) => *index == needle,
+            Self::Split { first, second, .. } => {
+                first.contains_leaf(needle) || second.contains_leaf(needle)
+            }
+        }
+    }
+
+    fn is_single_leaf(&self) -> bool {
+        matches!(self, Self::Leaf(_))
+    }
+
+    fn shift_after_removed(&mut self, removed_index: usize) {
+        match self {
+            Self::Leaf(index) => {
+                if *index > removed_index {
+                    *index -= 1;
+                }
+            }
+            Self::Split { first, second, .. } => {
+                first.shift_after_removed(removed_index);
+                second.shift_after_removed(removed_index);
+            }
+        }
+    }
+
+    fn sanitize(self, pane_count: usize) -> Self {
+        if pane_count == 0 {
+            return Self::Leaf(0);
+        }
+        if self.all_leaves_valid(pane_count) {
+            self
+        } else {
+            Self::from_flat_panes(pane_count, SplitDirection::Vertical)
+        }
+    }
+
+    fn all_leaves_valid(&self, pane_count: usize) -> bool {
+        match self {
+            Self::Leaf(index) => *index < pane_count,
+            Self::Split { first, second, .. } => {
+                first.all_leaves_valid(pane_count) && second.all_leaves_valid(pane_count)
+            }
+        }
+    }
+
+    fn pane_sizes(&self, cols: u16, rows: u16) -> Vec<(usize, u16, u16)> {
+        let mut sizes = Vec::new();
+        self.collect_pane_sizes(cols, rows, &mut sizes);
+        sizes
+    }
+
+    fn collect_pane_sizes(&self, cols: u16, rows: u16, sizes: &mut Vec<(usize, u16, u16)>) {
+        match self {
+            Self::Leaf(index) => sizes.push((*index, cols.max(1), rows.saturating_sub(1).max(1))),
+            Self::Split {
+                direction,
+                first,
+                second,
+            } => match direction {
+                SplitDirection::Vertical => {
+                    let separator = u16::from(cols > 2);
+                    let available = cols.saturating_sub(separator);
+                    let first_cols = (available / 2).max(1);
+                    let second_cols = available.saturating_sub(first_cols).max(1);
+                    first.collect_pane_sizes(first_cols, rows, sizes);
+                    second.collect_pane_sizes(second_cols, rows, sizes);
+                }
+                SplitDirection::Horizontal => {
+                    let separator = u16::from(rows > 2);
+                    let available = rows.saturating_sub(separator);
+                    let first_rows = (available / 2).max(1);
+                    let second_rows = available.saturating_sub(first_rows).max(1);
+                    first.collect_pane_sizes(cols, first_rows, sizes);
+                    second.collect_pane_sizes(cols, second_rows, sizes);
+                }
+            },
+        }
+    }
+}
+
+fn apply_rename_key(key: KeyEvent, buffer: &mut String) -> bool {
+    match key.code {
+        KeyCode::Enter => {}
         KeyCode::Esc => {}
         KeyCode::Backspace => {
             buffer.pop();
@@ -520,13 +773,6 @@ fn apply_rename_key(key: KeyEvent, buffer: &mut String, mut apply: impl FnMut(St
     true
 }
 
-fn pane_size(cols: u16, rows: u16, direction: SplitDirection, pane_count: u16) -> (u16, u16) {
-    match direction {
-        SplitDirection::Vertical => ((cols / pane_count).max(1), rows.max(1)),
-        SplitDirection::Horizontal => (cols.max(1), (rows / pane_count).max(1)),
-    }
-}
-
 fn project_name(cwd: &Path) -> String {
     cwd.file_name()
         .and_then(|name| name.to_str())
@@ -537,4 +783,44 @@ fn project_name(cwd: &Path) -> String {
 #[allow(dead_code)]
 fn _encoded_key_for_tests(key: KeyEvent) -> Option<Vec<u8>> {
     encode_key(key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_leaf_nests_at_active_leaf() {
+        let mut layout = PaneNode::Leaf(0);
+        assert!(layout.split_leaf(0, 1, SplitDirection::Vertical));
+        assert!(layout.split_leaf(0, 2, SplitDirection::Horizontal));
+
+        assert_eq!(
+            layout,
+            PaneNode::Split {
+                direction: SplitDirection::Vertical,
+                first: Box::new(PaneNode::Split {
+                    direction: SplitDirection::Horizontal,
+                    first: Box::new(PaneNode::Leaf(0)),
+                    second: Box::new(PaneNode::Leaf(2)),
+                }),
+                second: Box::new(PaneNode::Leaf(1)),
+            }
+        );
+    }
+
+    #[test]
+    fn remove_leaf_collapses_split_and_shifts_indices() {
+        let mut layout = PaneNode::from_flat_panes(3, SplitDirection::Vertical).remove_leaf(1);
+        layout.shift_after_removed(1);
+
+        assert_eq!(
+            layout,
+            PaneNode::Split {
+                direction: SplitDirection::Vertical,
+                first: Box::new(PaneNode::Leaf(0)),
+                second: Box::new(PaneNode::Leaf(1)),
+            }
+        );
+    }
 }

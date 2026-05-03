@@ -10,6 +10,16 @@ pub(crate) enum SplitDirection {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) enum SessionPaneLayout {
+    Leaf(usize),
+    Split {
+        direction: SplitDirection,
+        first: Box<SessionPaneLayout>,
+        second: Box<SessionPaneLayout>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct SessionTab {
     pub(crate) name: String,
     pub(crate) cwd: PathBuf,
@@ -21,6 +31,8 @@ pub(crate) struct SessionWindow {
     pub(crate) name: String,
     pub(crate) active_pane: usize,
     pub(crate) split_direction: SplitDirection,
+    #[serde(default)]
+    pub(crate) layout: Option<SessionPaneLayout>,
     pub(crate) panes: Vec<SessionTab>,
 }
 
@@ -114,6 +126,7 @@ fn migrate_project_sessions(session: ProjectSessionsState) -> SessionState {
                     name: "window 1".to_string(),
                     active_pane: project.active_session,
                     split_direction: SplitDirection::Vertical,
+                    layout: None,
                     panes: project.sessions,
                 }],
             })
@@ -143,6 +156,7 @@ fn migrate_legacy_session(session: LegacySessionState) -> SessionState {
                 name: "window 1".to_string(),
                 active_pane: session.active_tab,
                 split_direction: SplitDirection::Vertical,
+                layout: None,
                 panes: session.tabs,
             }],
         }],
