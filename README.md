@@ -30,10 +30,10 @@ brew install kandume --HEAD
 リリース後に Formula の tarball を新しいタグへ更新するときは、次で `sha256` を取得して `Formula/kandume.rb` の `url` / `sha256` を合わせてください。
 
 ```sh
-curl -sL "https://github.com/tarabakz25/kandume/archive/refs/tags/v0.1.1.tar.gz" | shasum -a 256
+curl -sL "https://github.com/tarabakz25/kandume/archive/refs/tags/v0.1.2.tar.gz" | shasum -a 256
 ```
 
-（`v0.1.1` は実際のタグ名に読み替え。）
+（`v0.1.2` は実際のタグ名に読み替え。）
 
 ### ソースから
 

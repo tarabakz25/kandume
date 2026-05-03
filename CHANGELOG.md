@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- chore(brew): point stable `Formula/kandume.rb` tarball at v0.1.1 with checksum.
+
 ## [0.1.1] - 2026-05-04
 
 - Homebrew: add `Formula/kandume.rb` so the repo can be used as `brew tap tarabakz25/kandume https://github.com/tarabakz25/kandume.git` and installed with `brew install kandume` (stable tarball) or `brew install kandume --HEAD` (branch `develop`).

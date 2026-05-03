@@ -1,8 +1,8 @@
 class Kandume < Formula
   desc "Terminal multiplexer TUI (Ratatui, tmux-style Ctrl-b)"
   homepage "https://github.com/tarabakz25/kandume"
-  url "https://github.com/tarabakz25/kandume/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "4442118dc32589dc31c0069b8db988a57127e3c2f45c0856369bda0e0ea1b9cb"
+  url "https://github.com/tarabakz25/kandume/archive/refs/tags/v0.1.1.tar.gz"
+  sha256 "0722d16261ca4306cd72312753faa6184d65fc70c3ff43df306aee58826687dd"
   head "https://github.com/tarabakz25/kandume.git", branch: "develop"
 
   depends_on "rust" => :build
@@ -12,6 +12,6 @@ class Kandume < Formula
   end
 
   test do
-    assert_predicate bin/"kandume", :executable?
+    assert_match version.to_s, shell_output("#{bin}/kandume --version")
   end
 end
