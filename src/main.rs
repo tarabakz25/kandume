@@ -1,14 +1,20 @@
 mod app;
 mod input;
+mod layout;
+mod mouse;
 mod session;
 mod terminal;
 mod ui;
 
-use std::{io, panic};
+use std::{
+    io::{self, Write},
+    panic,
+};
 
 use anyhow::Result;
 use app::App;
 use crossterm::{
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{
         EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, size,
@@ -21,7 +27,11 @@ fn main() -> Result<()> {
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    // Crossterm enables `?1003h` (all-motion); that floods hover events and we used to forward them
+    // to the PTY, which shells echo as garbage. Keep button/drag tracking (`?1002h`) for clicks.
+    stdout.write_all(b"\x1b[?1003l")?;
+    stdout.flush()?;
 
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
@@ -45,7 +55,11 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> 
 
 fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        DisableMouseCapture,
+        LeaveAlternateScreen
+    )?;
     terminal.show_cursor()?;
     Ok(())
 }
@@ -54,7 +68,11 @@ fn install_panic_hook() {
     let original_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic_info| {
         let _ = disable_raw_mode();
-        let _ = execute!(io::stdout(), LeaveAlternateScreen);
+        let _ = execute!(
+            io::stdout(),
+            DisableMouseCapture,
+            LeaveAlternateScreen
+        );
         original_hook(panic_info);
     }));
 }
