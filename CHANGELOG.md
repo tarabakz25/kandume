@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added Japanese `README.md` with install, keybindings, mouse, and session file location.
+
 ## [0.1.0] - 2026-05-04
 
 - Ratatui terminal multiplexer MVP with tmux-style Ctrl-b prefix controls.
