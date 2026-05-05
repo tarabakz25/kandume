@@ -213,7 +213,21 @@ fn draw_pane_leaf(frame: &mut Frame<'_>, pane: &TerminalTab, active: bool, area:
         .constraints([Constraint::Length(1), Constraint::Min(1)])
         .split(area);
     frame.render_widget(Paragraph::new(pane_title(pane, active)), chunks[0]);
-    frame.render_widget(Paragraph::new(terminal_lines(pane.screen())), chunks[1]);
+    let screen = pane.screen();
+    frame.render_widget(Paragraph::new(terminal_lines(screen)), chunks[1]);
+    if active && !screen.hide_cursor() {
+        let (row, col) = screen.cursor_position();
+        let content = chunks[1];
+        let x = content
+            .x
+            .saturating_add(col)
+            .min(content.x + content.width.saturating_sub(1));
+        let y = content
+            .y
+            .saturating_add(row)
+            .min(content.y + content.height.saturating_sub(1));
+        frame.set_cursor_position((x, y));
+    }
 }
 
 fn pane_title(pane: &TerminalTab, active: bool) -> Line<'static> {
