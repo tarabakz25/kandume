@@ -5,7 +5,7 @@ use ratatui::{
 };
 
 use crate::{
-    app::{PaneNode, SplitPath, SIDEBAR_HEADER_HEIGHT, SIDEBAR_WIDTH, WhichChild, WindowPage},
+    app::{PaneNode, SIDEBAR_HEADER_HEIGHT, SIDEBAR_WIDTH, SplitPath, WhichChild, WindowPage},
     session::SplitDirection,
 };
 
@@ -114,7 +114,11 @@ pub(crate) fn split_first_size(available: u16, ratio: f64) -> u16 {
 }
 
 /// Return (first_rect, sep_rect, second_rect) for a Split node.
-pub(crate) fn split_chunks(area: Rect, direction: SplitDirection, ratio: f64) -> (Rect, Rect, Rect) {
+pub(crate) fn split_chunks(
+    area: Rect,
+    direction: SplitDirection,
+    ratio: f64,
+) -> (Rect, Rect, Rect) {
     match direction {
         SplitDirection::Vertical => {
             let separator = u16::from(area.width > 2);
@@ -271,12 +275,10 @@ fn hit_separator_inner(
             first,
             second,
         } => {
-            let (first_chunk, sep_chunk, second_chunk) =
-                split_chunks(area, *direction, *ratio);
+            let (first_chunk, sep_chunk, second_chunk) = split_chunks(area, *direction, *ratio);
 
             // Check if the pointer is on the separator itself.
-            if sep_chunk.width > 0 && sep_chunk.height > 0 && pointer_in_rect(sep_chunk, col, row)
-            {
+            if sep_chunk.width > 0 && sep_chunk.height > 0 && pointer_in_rect(sep_chunk, col, row) {
                 return Some(SeparatorHit {
                     path: path.clone(),
                     direction: *direction,

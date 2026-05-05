@@ -330,12 +330,10 @@ impl App {
                     .map(|d| (d.path.clone(), d.direction, d.area));
 
                 if let Some((path, direction, drag_area)) = drag_data {
-                    let new_ratio =
-                        compute_drag_ratio(direction, drag_area, ev.column, ev.row);
+                    let new_ratio = compute_drag_ratio(direction, drag_area, ev.column, ev.row);
                     let ap = self.active_project;
                     if let Some(project) = self.projects.get_mut(ap)
-                        && let Some(window) =
-                            project.windows.get_mut(project.active_window)
+                        && let Some(window) = project.windows.get_mut(project.active_window)
                         && let Some(ratio) = window.layout.ratio_at_path_mut(&path)
                     {
                         *ratio = new_ratio;
@@ -367,8 +365,7 @@ impl App {
                     if let Some(pi) = self.mouse_grab_pane
                         && self.pane_has_mouse_mode(pi)
                     {
-                        let (lc, lr) =
-                            self.mouse_local_for_pane(pi, ev.column, ev.row, &root);
+                        let (lc, lr) = self.mouse_local_for_pane(pi, ev.column, ev.row, &root);
                         if let Some((pcols, prows)) = self.pane_pty_size(pi) {
                             self.write_mouse_to_pane(
                                 pi,
@@ -428,9 +425,11 @@ impl App {
                 // 1. Window tab bar click → select window.
                 if layout::pointer_in_rect(root.window_tab_bar, ev.column, ev.row) {
                     let ap = self.active_project;
-                    if let Some(idx) = self.projects.get(ap).and_then(|p| {
-                        window_tab_idx_at_col(p, root.window_tab_bar, ev.column)
-                    }) {
+                    if let Some(idx) = self
+                        .projects
+                        .get(ap)
+                        .and_then(|p| window_tab_idx_at_col(p, root.window_tab_bar, ev.column))
+                    {
                         self.projects[ap].active_window = idx;
                     }
                     self.mouse_grab_pane = None;
