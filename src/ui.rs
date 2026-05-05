@@ -362,7 +362,9 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
         Line::from("Ctrl-b [    previous session"),
         Line::from("Ctrl-b o    next pane"),
         Line::from("Ctrl-b ;    previous pane"),
-        Line::from("Ctrl-b x    close pane (last pane closes session → prior session; lone session → home project)"),
+        Line::from(
+            "Ctrl-b x    close pane (last pane closes session → prior session; lone session → home project)",
+        ),
         Line::from("Ctrl-b ,    rename project"),
         Line::from("Ctrl-b .    rename session"),
         Line::from("Ctrl-b r    rename pane"),

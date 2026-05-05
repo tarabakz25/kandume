@@ -272,9 +272,9 @@ impl App {
             return Ok(());
         }
 
-        let hit = self
-            .active_window()
-            .and_then(|window| layout::hit_test_pane_stack(window, root.pane_stack, ev.column, ev.row));
+        let hit = self.active_window().and_then(|window| {
+            layout::hit_test_pane_stack(window, root.pane_stack, ev.column, ev.row)
+        });
 
         match ev.kind {
             MouseEventKind::Up(_) => {
@@ -299,70 +299,66 @@ impl App {
             MouseEventKind::ScrollDown
             | MouseEventKind::ScrollUp
             | MouseEventKind::ScrollLeft
-            | MouseEventKind::ScrollRight => {
-                match hit {
-                    Some(layout::PaneHit::Terminal {
-                        pane,
-                        local_col,
-                        local_row,
-                    }) => {
-                        if let Some(window) = self.active_window_mut() {
-                            window.active_pane = pane;
-                        }
-                        if let Some((pcols, prows)) = self.pane_pty_size(pane) {
-                            self.write_mouse_to_pane(
-                                pane,
-                                ev.kind,
-                                ev.modifiers,
-                                local_col,
-                                local_row,
-                                pcols,
-                                prows,
-                            )?;
-                        }
+            | MouseEventKind::ScrollRight => match hit {
+                Some(layout::PaneHit::Terminal {
+                    pane,
+                    local_col,
+                    local_row,
+                }) => {
+                    if let Some(window) = self.active_window_mut() {
+                        window.active_pane = pane;
                     }
-                    Some(layout::PaneHit::Title(pi)) => {
-                        if let Some(window) = self.active_window_mut() {
-                            window.active_pane = pi;
-                        }
-                    }
-                    None => {}
-                }
-            }
-            MouseEventKind::Down(_) => {
-                match hit {
-                    Some(layout::PaneHit::Title(pi)) => {
-                        if let Some(window) = self.active_window_mut() {
-                            window.active_pane = pi;
-                        }
-                        self.mouse_grab_pane = None;
-                    }
-                    Some(layout::PaneHit::Terminal {
-                        pane,
-                        local_col,
-                        local_row,
-                    }) => {
-                        if let Some(window) = self.active_window_mut() {
-                            window.active_pane = pane;
-                        }
-                        self.mouse_grab_pane = Some(pane);
-                        if let Some((pcols, prows)) = self.pane_pty_size(pane) {
-                            self.write_mouse_to_pane(
-                                pane,
-                                ev.kind,
-                                ev.modifiers,
-                                local_col,
-                                local_row,
-                                pcols,
-                                prows,
-                            )?;
-                        }
-                    }
-                    None => {
-                        self.mouse_grab_pane = None;
+                    if let Some((pcols, prows)) = self.pane_pty_size(pane) {
+                        self.write_mouse_to_pane(
+                            pane,
+                            ev.kind,
+                            ev.modifiers,
+                            local_col,
+                            local_row,
+                            pcols,
+                            prows,
+                        )?;
                     }
                 }
-            }
+                Some(layout::PaneHit::Title(pi)) => {
+                    if let Some(window) = self.active_window_mut() {
+                        window.active_pane = pi;
+                    }
+                }
+                None => {}
+            },
+            MouseEventKind::Down(_) => match hit {
+                Some(layout::PaneHit::Title(pi)) => {
+                    if let Some(window) = self.active_window_mut() {
+                        window.active_pane = pi;
+                    }
+                    self.mouse_grab_pane = None;
+                }
+                Some(layout::PaneHit::Terminal {
+                    pane,
+                    local_col,
+                    local_row,
+                }) => {
+                    if let Some(window) = self.active_window_mut() {
+                        window.active_pane = pane;
+                    }
+                    self.mouse_grab_pane = Some(pane);
+                    if let Some((pcols, prows)) = self.pane_pty_size(pane) {
+                        self.write_mouse_to_pane(
+                            pane,
+                            ev.kind,
+                            ev.modifiers,
+                            local_col,
+                            local_row,
+                            pcols,
+                            prows,
+                        )?;
+                    }
+                }
+                None => {
+                    self.mouse_grab_pane = None;
+                }
+            },
         }
 
         Ok(())
