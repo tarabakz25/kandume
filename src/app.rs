@@ -45,11 +45,31 @@ pub(crate) struct WindowPage {
     pub(crate) layout: PaneNode,
 }
 
+/// Which child to descend into when navigating a `PaneNode` tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum WhichChild {
+    First,
+    Second,
+}
+
+/// A path from the root `PaneNode` to a particular `Split` node.
+pub(crate) type SplitPath = Vec<WhichChild>;
+
+/// State for an in-progress separator-drag resize.
+pub(crate) struct SeparatorDrag {
+    pub(crate) path: SplitPath,
+    pub(crate) direction: SplitDirection,
+    /// Bounding rect of the `Split` node (used to translate mouse pos → ratio).
+    pub(crate) area: Rect,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum PaneNode {
     Leaf(usize),
     Split {
         direction: SplitDirection,
+        /// Fraction of available space given to `first` (0.0–1.0).
+        ratio: f64,
         first: Box<PaneNode>,
         second: Box<PaneNode>,
     },
@@ -61,6 +81,10 @@ pub(crate) struct App {
     pub(crate) prefix_active: bool,
     pub(crate) show_help: bool,
     pub(crate) rename_state: RenameState,
+    /// Path to the separator currently highlighted by hover (or None).
+    pub(crate) hover_separator: Option<SplitPath>,
+    /// Active separator drag (mutually exclusive with `mouse_grab_pane`).
+    pub(crate) separator_drag: Option<SeparatorDrag>,
     input: InputState,
     output_tx: Sender<(u64, Vec<u8>)>,
     output_rx: Receiver<(u64, Vec<u8>)>,
@@ -85,6 +109,8 @@ impl App {
             prefix_active: false,
             show_help: false,
             rename_state: RenameState::Idle,
+            hover_separator: None,
+            separator_drag: None,
             input: InputState::default(),
             output_tx,
             output_rx,
@@ -114,6 +140,15 @@ impl App {
     pub(crate) fn active_terminal(&self) -> Option<&TerminalTab> {
         self.active_window()
             .and_then(|window| window.panes.get(window.active_pane))
+    }
+
+    /// Returns the path of the separator that should be highlighted in the UI —
+    /// the dragged one takes priority over the hovered one.
+    pub(crate) fn separator_highlight(&self) -> Option<&[WhichChild]> {
+        self.separator_drag
+            .as_ref()
+            .map(|d| d.path.as_slice())
+            .or(self.hover_separator.as_deref())
     }
 
     pub(crate) fn tick(&mut self) -> Result<bool> {
@@ -257,6 +292,7 @@ impl App {
         let area = Rect::new(0, 0, self.screen_cols, self.screen_rows);
         let root = layout::compute_root_areas(area);
 
+        // ── Sidebar ──────────────────────────────────────────────────────────
         if layout::pointer_in_rect(root.sidebar, ev.column, ev.row) {
             if matches!(ev.kind, MouseEventKind::Down(MouseButton::Left))
                 && let Some(idx) = layout::hit_project_row(
@@ -272,29 +308,40 @@ impl App {
             return Ok(());
         }
 
-        let hit = self.active_window().and_then(|window| {
-            layout::hit_test_pane_stack(window, root.pane_stack, ev.column, ev.row)
-        });
-
         match ev.kind {
-            MouseEventKind::Up(_) => {
-                if let Some(pi) = self.mouse_grab_pane {
-                    let (lc, lr) = self.mouse_local_for_pane(pi, ev.column, ev.row, &root);
-                    if let Some((pcols, prows)) = self.pane_pty_size(pi) {
-                        self.write_mouse_to_pane(
-                            pi,
-                            ev.kind,
-                            ev.modifiers,
-                            lc,
-                            lr,
-                            (pcols, prows),
-                        )?;
-                    }
-                }
-                self.mouse_grab_pane = None;
+            // ── Hover: update separator highlight ────────────────────────────
+            MouseEventKind::Moved => {
+                let sep = if layout::pointer_in_rect(root.pane_stack, ev.column, ev.row) {
+                    self.active_window().and_then(|w| {
+                        layout::hit_separator(&w.layout, root.pane_stack, ev.column, ev.row)
+                    })
+                } else {
+                    None
+                };
+                self.hover_separator = sep.map(|h| h.path);
             }
+
+            // ── Drag: separator resize takes priority over pane grab ──────────
             MouseEventKind::Drag(_) => {
-                if let Some(pi) = self.mouse_grab_pane {
+                // Clone drag data to avoid long borrow over mutable self access.
+                let drag_data = self
+                    .separator_drag
+                    .as_ref()
+                    .map(|d| (d.path.clone(), d.direction, d.area));
+
+                if let Some((path, direction, drag_area)) = drag_data {
+                    let new_ratio =
+                        compute_drag_ratio(direction, drag_area, ev.column, ev.row);
+                    let ap = self.active_project;
+                    if let Some(project) = self.projects.get_mut(ap)
+                        && let Some(window) =
+                            project.windows.get_mut(project.active_window)
+                        && let Some(ratio) = window.layout.ratio_at_path_mut(&path)
+                    {
+                        *ratio = new_ratio;
+                    }
+                    self.resize_all_panes()?;
+                } else if let Some(pi) = self.mouse_grab_pane {
                     let (lc, lr) = self.mouse_local_for_pane(pi, ev.column, ev.row, &root);
                     if let Some((pcols, prows)) = self.pane_pty_size(pi) {
                         self.write_mouse_to_pane(
@@ -308,69 +355,134 @@ impl App {
                     }
                 }
             }
-            // Hover-only motion (CSI cb 35…): never send to the PTY — shells show fragments as junk.
-            MouseEventKind::Moved => {}
+
+            // ── Up: finish drag, then pane grab ──────────────────────────────
+            MouseEventKind::Up(_) => {
+                if self.separator_drag.is_some() {
+                    self.separator_drag = None;
+                    self.mouse_grab_pane = None;
+                } else {
+                    if let Some(pi) = self.mouse_grab_pane {
+                        let (lc, lr) =
+                            self.mouse_local_for_pane(pi, ev.column, ev.row, &root);
+                        if let Some((pcols, prows)) = self.pane_pty_size(pi) {
+                            self.write_mouse_to_pane(
+                                pi,
+                                ev.kind,
+                                ev.modifiers,
+                                lc,
+                                lr,
+                                (pcols, prows),
+                            )?;
+                        }
+                    }
+                    self.mouse_grab_pane = None;
+                }
+            }
+
+            // ── Scroll ───────────────────────────────────────────────────────
             MouseEventKind::ScrollDown
             | MouseEventKind::ScrollUp
             | MouseEventKind::ScrollLeft
-            | MouseEventKind::ScrollRight => match hit {
-                Some(layout::PaneHit::Terminal {
-                    pane,
-                    local_col,
-                    local_row,
-                }) => {
-                    if let Some(window) = self.active_window_mut() {
-                        window.active_pane = pane;
+            | MouseEventKind::ScrollRight => {
+                let hit = self.active_window().and_then(|window| {
+                    layout::hit_test_pane_stack(window, root.pane_stack, ev.column, ev.row)
+                });
+                match hit {
+                    Some(layout::PaneHit::Terminal {
+                        pane,
+                        local_col,
+                        local_row,
+                    }) => {
+                        if let Some(window) = self.active_window_mut() {
+                            window.active_pane = pane;
+                        }
+                        if let Some((pcols, prows)) = self.pane_pty_size(pane) {
+                            self.write_mouse_to_pane(
+                                pane,
+                                ev.kind,
+                                ev.modifiers,
+                                local_col,
+                                local_row,
+                                (pcols, prows),
+                            )?;
+                        }
                     }
-                    if let Some((pcols, prows)) = self.pane_pty_size(pane) {
-                        self.write_mouse_to_pane(
-                            pane,
-                            ev.kind,
-                            ev.modifiers,
-                            local_col,
-                            local_row,
-                            (pcols, prows),
-                        )?;
+                    Some(layout::PaneHit::Title(pi)) => {
+                        if let Some(window) = self.active_window_mut() {
+                            window.active_pane = pi;
+                        }
                     }
+                    None => {}
                 }
-                Some(layout::PaneHit::Title(pi)) => {
-                    if let Some(window) = self.active_window_mut() {
-                        window.active_pane = pi;
-                    }
-                }
-                None => {}
-            },
-            MouseEventKind::Down(_) => match hit {
-                Some(layout::PaneHit::Title(pi)) => {
-                    if let Some(window) = self.active_window_mut() {
-                        window.active_pane = pi;
+            }
+
+            // ── Down: window tab bar → separator → pane ──────────────────────
+            MouseEventKind::Down(_) => {
+                // 1. Window tab bar click → select window.
+                if layout::pointer_in_rect(root.window_tab_bar, ev.column, ev.row) {
+                    let ap = self.active_project;
+                    if let Some(idx) = self.projects.get(ap).and_then(|p| {
+                        window_tab_idx_at_col(p, root.window_tab_bar, ev.column)
+                    }) {
+                        self.projects[ap].active_window = idx;
                     }
                     self.mouse_grab_pane = None;
+                    self.separator_drag = None;
+                    return Ok(());
                 }
-                Some(layout::PaneHit::Terminal {
-                    pane,
-                    local_col,
-                    local_row,
-                }) => {
-                    if let Some(window) = self.active_window_mut() {
-                        window.active_pane = pane;
-                    }
-                    self.mouse_grab_pane = Some(pane);
-                    if let Some((pcols, prows)) = self.pane_pty_size(pane) {
-                        self.write_mouse_to_pane(
-                            pane,
-                            ev.kind,
-                            ev.modifiers,
-                            local_col,
-                            local_row,
-                            (pcols, prows),
-                        )?;
-                    }
-                }
-                None => {
+
+                // 2. Separator → start drag.
+                let sep_hit = self.active_window().and_then(|w| {
+                    layout::hit_separator(&w.layout, root.pane_stack, ev.column, ev.row)
+                });
+                if let Some(sep) = sep_hit {
+                    self.separator_drag = Some(SeparatorDrag {
+                        path: sep.path,
+                        direction: sep.direction,
+                        area: sep.area,
+                    });
                     self.mouse_grab_pane = None;
+                    return Ok(());
                 }
-            },
+                self.separator_drag = None;
+
+                // 3. Pane title / terminal.
+                let hit = self.active_window().and_then(|w| {
+                    layout::hit_test_pane_stack(w, root.pane_stack, ev.column, ev.row)
+                });
+                match hit {
+                    Some(layout::PaneHit::Title(pi)) => {
+                        if let Some(window) = self.active_window_mut() {
+                            window.active_pane = pi;
+                        }
+                        self.mouse_grab_pane = None;
+                    }
+                    Some(layout::PaneHit::Terminal {
+                        pane,
+                        local_col,
+                        local_row,
+                    }) => {
+                        if let Some(window) = self.active_window_mut() {
+                            window.active_pane = pane;
+                        }
+                        self.mouse_grab_pane = Some(pane);
+                        if let Some((pcols, prows)) = self.pane_pty_size(pane) {
+                            self.write_mouse_to_pane(
+                                pane,
+                                ev.kind,
+                                ev.modifiers,
+                                local_col,
+                                local_row,
+                                (pcols, prows),
+                            )?;
+                        }
+                    }
+                    None => {
+                        self.mouse_grab_pane = None;
+                    }
+                }
+            }
         }
 
         Ok(())
@@ -818,10 +930,12 @@ impl PaneNode {
             SessionPaneLayout::Leaf(index) => Self::Leaf(index),
             SessionPaneLayout::Split {
                 direction,
+                ratio,
                 first,
                 second,
             } => Self::Split {
                 direction,
+                ratio,
                 first: Box::new(Self::from_session_layout(*first)),
                 second: Box::new(Self::from_session_layout(*second)),
             },
@@ -833,6 +947,7 @@ impl PaneNode {
         for index in 1..pane_count {
             layout = Self::Split {
                 direction,
+                ratio: 0.5,
                 first: Box::new(layout),
                 second: Box::new(Self::Leaf(index)),
             };
@@ -845,10 +960,12 @@ impl PaneNode {
             Self::Leaf(index) => SessionPaneLayout::Leaf(*index),
             Self::Split {
                 direction,
+                ratio,
                 first,
                 second,
             } => SessionPaneLayout::Split {
                 direction: *direction,
+                ratio: *ratio,
                 first: Box::new(first.session_layout()),
                 second: Box::new(second.session_layout()),
             },
@@ -872,6 +989,7 @@ impl PaneNode {
             Self::Leaf(index) if *index == old_index => {
                 *self = Self::Split {
                     direction,
+                    ratio: 0.5,
                     first: Box::new(Self::Leaf(old_index)),
                     second: Box::new(Self::Leaf(new_index)),
                 };
@@ -890,6 +1008,7 @@ impl PaneNode {
             Self::Leaf(_) => Self::Leaf(0),
             Self::Split {
                 direction,
+                ratio,
                 first,
                 second,
             } => {
@@ -901,16 +1020,19 @@ impl PaneNode {
                     (false, true) if second.is_single_leaf() => *first,
                     (true, false) => Self::Split {
                         direction,
+                        ratio,
                         first: Box::new(first.remove_leaf(removed_index)),
                         second,
                     },
                     (false, true) => Self::Split {
                         direction,
+                        ratio,
                         first,
                         second: Box::new(second.remove_leaf(removed_index)),
                     },
                     _ => Self::Split {
                         direction,
+                        ratio,
                         first,
                         second,
                     },
@@ -977,13 +1099,14 @@ impl PaneNode {
             Self::Leaf(index) => sizes.push((*index, cols.max(1), rows.saturating_sub(1).max(1))),
             Self::Split {
                 direction,
+                ratio,
                 first,
                 second,
             } => match direction {
                 SplitDirection::Vertical => {
                     let separator = u16::from(cols > 2);
                     let available = cols.saturating_sub(separator);
-                    let first_cols = (available / 2).max(1);
+                    let first_cols = crate::layout::split_first_size(available, *ratio);
                     let second_cols = available.saturating_sub(first_cols).max(1);
                     first.collect_pane_sizes(first_cols, rows, sizes);
                     second.collect_pane_sizes(second_cols, rows, sizes);
@@ -991,7 +1114,7 @@ impl PaneNode {
                 SplitDirection::Horizontal => {
                     let separator = u16::from(rows > 2);
                     let available = rows.saturating_sub(separator);
-                    let first_rows = (available / 2).max(1);
+                    let first_rows = crate::layout::split_first_size(available, *ratio);
                     let second_rows = available.saturating_sub(first_rows).max(1);
                     first.collect_pane_sizes(cols, first_rows, sizes);
                     second.collect_pane_sizes(cols, second_rows, sizes);
@@ -999,6 +1122,72 @@ impl PaneNode {
             },
         }
     }
+
+    /// Navigate to the `Split` node identified by `path` and return a mutable
+    /// reference to its ratio.
+    pub(crate) fn ratio_at_path_mut(&mut self, path: &[WhichChild]) -> Option<&mut f64> {
+        match (self, path) {
+            (Self::Split { ratio, .. }, []) => Some(ratio),
+            (Self::Split { first, .. }, [WhichChild::First, rest @ ..]) => {
+                first.ratio_at_path_mut(rest)
+            }
+            (Self::Split { second, .. }, [WhichChild::Second, rest @ ..]) => {
+                second.ratio_at_path_mut(rest)
+            }
+            _ => None,
+        }
+    }
+}
+
+// ── Free helpers ──────────────────────────────────────────────────────────────
+
+/// Compute the new split ratio when the user drags a separator to (col, row).
+fn compute_drag_ratio(direction: SplitDirection, area: Rect, col: u16, row: u16) -> f64 {
+    match direction {
+        SplitDirection::Vertical => {
+            let separator = u16::from(area.width > 2);
+            let available = area.width.saturating_sub(separator);
+            if available == 0 {
+                return 0.5;
+            }
+            let offset = col.saturating_sub(area.x) as f64;
+            (offset / available as f64).clamp(
+                1.0 / available as f64,
+                (available - 1) as f64 / available as f64,
+            )
+        }
+        SplitDirection::Horizontal => {
+            let separator = u16::from(area.height > 2);
+            let available = area.height.saturating_sub(separator);
+            if available == 0 {
+                return 0.5;
+            }
+            let offset = row.saturating_sub(area.y) as f64;
+            (offset / available as f64).clamp(
+                1.0 / available as f64,
+                (available - 1) as f64 / available as f64,
+            )
+        }
+    }
+}
+
+/// Return the index of the window tab that was clicked given the tab-bar area
+/// and absolute column. Each tab renders as `" {i+1}:{name} "` plus one
+/// trailing space separator, matching `draw_windows` in `ui.rs`.
+fn window_tab_idx_at_col(project: &Project, area: Rect, col: u16) -> Option<usize> {
+    let mut x = area.x;
+    for (i, window) in project.windows.iter().enumerate() {
+        let label = format!(" {}:{} ", i + 1, window.name);
+        let tab_w = label.chars().count() as u16 + 1; // label + trailing space separator
+        if col < x + tab_w {
+            return Some(i);
+        }
+        x += tab_w;
+        if x >= area.x + area.width {
+            break;
+        }
+    }
+    None
 }
 
 fn apply_rename_key(key: KeyEvent, buffer: &mut String) -> bool {
@@ -1044,8 +1233,10 @@ mod tests {
             layout,
             PaneNode::Split {
                 direction: SplitDirection::Vertical,
+                ratio: 0.5,
                 first: Box::new(PaneNode::Split {
                     direction: SplitDirection::Horizontal,
+                    ratio: 0.5,
                     first: Box::new(PaneNode::Leaf(0)),
                     second: Box::new(PaneNode::Leaf(2)),
                 }),
@@ -1063,6 +1254,7 @@ mod tests {
             layout,
             PaneNode::Split {
                 direction: SplitDirection::Vertical,
+                ratio: 0.5,
                 first: Box::new(PaneNode::Leaf(0)),
                 second: Box::new(PaneNode::Leaf(1)),
             }

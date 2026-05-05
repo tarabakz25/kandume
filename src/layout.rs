@@ -5,7 +5,7 @@ use ratatui::{
 };
 
 use crate::{
-    app::{PaneNode, SIDEBAR_HEADER_HEIGHT, SIDEBAR_WIDTH, WindowPage},
+    app::{PaneNode, SplitPath, SIDEBAR_HEADER_HEIGHT, SIDEBAR_WIDTH, WhichChild, WindowPage},
     session::SplitDirection,
 };
 
@@ -14,6 +14,8 @@ pub(crate) struct RootAreas {
     pub(crate) projects_inner: Rect,
     /// Active workspace area (window bar + pane stack), matching `draw_workspace`.
     pub(crate) workspace: Rect,
+    /// Top 1-row bar showing window tabs.
+    pub(crate) window_tab_bar: Rect,
     pub(crate) pane_stack: Rect,
     pub(crate) status: Rect,
 }
@@ -53,6 +55,7 @@ pub(crate) fn compute_root_areas(area: Rect) -> RootAreas {
         sidebar: body[0],
         projects_inner,
         workspace: body[1],
+        window_tab_bar: workspace_chunks[0],
         pane_stack: workspace_chunks[1],
         status: vertical[1],
     }
@@ -89,6 +92,65 @@ pub(crate) enum PaneHit {
     },
 }
 
+/// Result of a separator hit-test.
+pub(crate) struct SeparatorHit {
+    /// Path from the root PaneNode to the Split node whose separator was hit.
+    pub(crate) path: SplitPath,
+    pub(crate) direction: SplitDirection,
+    /// Area of the Split node (used to compute drag ratio).
+    pub(crate) area: Rect,
+}
+
+// ── Layout helpers ────────────────────────────────────────────────────────────
+
+/// Compute the width (or height) of the first child given the available space
+/// and a split ratio in 0.0–1.0. The result is clamped so both halves are ≥ 1.
+pub(crate) fn split_first_size(available: u16, ratio: f64) -> u16 {
+    if available == 0 {
+        return 0;
+    }
+    let first = (available as f64 * ratio).round() as u16;
+    first.max(1).min(available.saturating_sub(1))
+}
+
+/// Return (first_rect, sep_rect, second_rect) for a Split node.
+pub(crate) fn split_chunks(area: Rect, direction: SplitDirection, ratio: f64) -> (Rect, Rect, Rect) {
+    match direction {
+        SplitDirection::Vertical => {
+            let separator = u16::from(area.width > 2);
+            let available = area.width.saturating_sub(separator);
+            let first_width = split_first_size(available, ratio);
+            let second_width = available.saturating_sub(first_width).max(1);
+            let chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Length(first_width),
+                    Constraint::Length(separator),
+                    Constraint::Length(second_width),
+                ])
+                .split(area);
+            (chunks[0], chunks[1], chunks[2])
+        }
+        SplitDirection::Horizontal => {
+            let separator = u16::from(area.height > 2);
+            let available = area.height.saturating_sub(separator);
+            let first_height = split_first_size(available, ratio);
+            let second_height = available.saturating_sub(first_height).max(1);
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(first_height),
+                    Constraint::Length(separator),
+                    Constraint::Length(second_height),
+                ])
+                .split(area);
+            (chunks[0], chunks[1], chunks[2])
+        }
+    }
+}
+
+// ── Hit-testing ───────────────────────────────────────────────────────────────
+
 pub(crate) fn hit_test_pane_stack(
     window: &WindowPage,
     pane_stack: Rect,
@@ -115,44 +177,14 @@ fn hit_pane_node(
         }
         PaneNode::Split {
             direction,
+            ratio,
             first,
             second,
-        } => match direction {
-            SplitDirection::Vertical => {
-                let separator = u16::from(area.width > 2);
-                let available = area.width.saturating_sub(separator);
-                let first_width = (available / 2).max(1);
-                let second_width = available.saturating_sub(first_width).max(1);
-                let chunks = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([
-                        Constraint::Length(first_width),
-                        Constraint::Length(separator),
-                        Constraint::Length(second_width),
-                    ])
-                    .split(area);
-
-                hit_pane_node(window, first, chunks[0], col, row)
-                    .or_else(|| hit_pane_node(window, second, chunks[2], col, row))
-            }
-            SplitDirection::Horizontal => {
-                let separator = u16::from(area.height > 2);
-                let available = area.height.saturating_sub(separator);
-                let first_height = (available / 2).max(1);
-                let second_height = available.saturating_sub(first_height).max(1);
-                let chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([
-                        Constraint::Length(first_height),
-                        Constraint::Length(separator),
-                        Constraint::Length(second_height),
-                    ])
-                    .split(area);
-
-                hit_pane_node(window, first, chunks[0], col, row)
-                    .or_else(|| hit_pane_node(window, second, chunks[2], col, row))
-            }
-        },
+        } => {
+            let (first_chunk, _, second_chunk) = split_chunks(area, *direction, *ratio);
+            hit_pane_node(window, first, first_chunk, col, row)
+                .or_else(|| hit_pane_node(window, second, second_chunk, col, row))
+        }
     }
 }
 
@@ -199,43 +231,74 @@ pub(crate) fn pane_terminal_rect(
         }
         PaneNode::Split {
             direction,
+            ratio,
             first,
             second,
-        } => match direction {
-            SplitDirection::Vertical => {
-                let separator = u16::from(area.width > 2);
-                let available = area.width.saturating_sub(separator);
-                let first_width = (available / 2).max(1);
-                let second_width = available.saturating_sub(first_width).max(1);
-                let chunks = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([
-                        Constraint::Length(first_width),
-                        Constraint::Length(separator),
-                        Constraint::Length(second_width),
-                    ])
-                    .split(area);
+        } => {
+            let (first_chunk, _, second_chunk) = split_chunks(area, *direction, *ratio);
+            pane_terminal_rect(window, first, first_chunk, target_pane)
+                .or_else(|| pane_terminal_rect(window, second, second_chunk, target_pane))
+        }
+    }
+}
 
-                pane_terminal_rect(window, first, chunks[0], target_pane)
-                    .or_else(|| pane_terminal_rect(window, second, chunks[2], target_pane))
-            }
-            SplitDirection::Horizontal => {
-                let separator = u16::from(area.height > 2);
-                let available = area.height.saturating_sub(separator);
-                let first_height = (available / 2).max(1);
-                let second_height = available.saturating_sub(first_height).max(1);
-                let chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([
-                        Constraint::Length(first_height),
-                        Constraint::Length(separator),
-                        Constraint::Length(second_height),
-                    ])
-                    .split(area);
+/// Return the separator hit (if any) at (col, row) within pane_stack.
+pub(crate) fn hit_separator(
+    node: &PaneNode,
+    pane_stack: Rect,
+    col: u16,
+    row: u16,
+) -> Option<SeparatorHit> {
+    if !pointer_in_rect(pane_stack, col, row) {
+        return None;
+    }
+    let mut path: SplitPath = Vec::new();
+    hit_separator_inner(node, pane_stack, col, row, &mut path)
+}
 
-                pane_terminal_rect(window, first, chunks[0], target_pane)
-                    .or_else(|| pane_terminal_rect(window, second, chunks[2], target_pane))
+fn hit_separator_inner(
+    node: &PaneNode,
+    area: Rect,
+    col: u16,
+    row: u16,
+    path: &mut SplitPath,
+) -> Option<SeparatorHit> {
+    match node {
+        PaneNode::Leaf(_) => None,
+        PaneNode::Split {
+            direction,
+            ratio,
+            first,
+            second,
+        } => {
+            let (first_chunk, sep_chunk, second_chunk) =
+                split_chunks(area, *direction, *ratio);
+
+            // Check if the pointer is on the separator itself.
+            if sep_chunk.width > 0 && sep_chunk.height > 0 && pointer_in_rect(sep_chunk, col, row)
+            {
+                return Some(SeparatorHit {
+                    path: path.clone(),
+                    direction: *direction,
+                    area,
+                });
             }
-        },
+
+            // Recurse into first child.
+            path.push(WhichChild::First);
+            if let Some(hit) = hit_separator_inner(first, first_chunk, col, row, path) {
+                return Some(hit);
+            }
+            path.pop();
+
+            // Recurse into second child.
+            path.push(WhichChild::Second);
+            if let Some(hit) = hit_separator_inner(second, second_chunk, col, row, path) {
+                return Some(hit);
+            }
+            path.pop();
+
+            None
+        }
     }
 }

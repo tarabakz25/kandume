@@ -14,9 +14,17 @@ pub(crate) enum SessionPaneLayout {
     Leaf(usize),
     Split {
         direction: SplitDirection,
+        /// Fraction of available space given to `first` (0.0–1.0).
+        /// Defaults to 0.5 for sessions saved before ratio support was added.
+        #[serde(default = "default_split_ratio")]
+        ratio: f64,
         first: Box<SessionPaneLayout>,
         second: Box<SessionPaneLayout>,
     },
+}
+
+fn default_split_ratio() -> f64 {
+    0.5
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

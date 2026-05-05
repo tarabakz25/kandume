@@ -2,15 +2,15 @@
 
 ## Unreleased
 
-- fix(ui): show PTY cursor in active pane — `draw_pane_leaf` now calls `frame.set_cursor_position` using `screen.cursor_position()`, clamped to the content area; cursor is hidden when the PTY sends `\x1b[?25l` (`screen.hide_cursor()`).
-- docs: rewrite `README.md` and `CONTRIBUTING.md` in English.
-- chore: add `CONTRIBUTING.md` with branch strategy, commit convention, and release procedure.
-- ci: add GitHub Actions workflow (`.github/workflows/ci.yml`) — `fmt --check`, `clippy -D warnings`, `cargo test` on ubuntu-latest and macos-latest.
-- fix(clippy): resolve all 8 clippy warnings (`collapsible_if`, `useless_conversion` ×4, `too_many_arguments`, `question_mark`, `identity_op`).
+- feat(mouse): window-tab click — clicking the tab bar selects the corresponding session.
+- feat(mouse): pane-title click — clicking a pane's title row activates that pane.
+- feat(mouse): separator drag-resize — dragging a vertical/horizontal split separator resizes both halves in real time; split ratio (`f64`) persisted in session TOML.
+- feat(mouse): separator hover highlight — hovering over a separator turns it yellow (`Color::Yellow`); `?1003h` all-motion tracking is now active (removed the previous `?1003l` override in `main.rs`).
+- refactor(layout): introduce `split_chunks`, `hit_separator`, `SeparatorHit`, `split_first_size`; all layout calculations use ratio instead of fixed 50/50 split.
+- refactor(app): `PaneNode::Split` gains `ratio: f64`; `WhichChild`, `SplitPath`, `SeparatorDrag` types added; `ratio_at_path_mut` for in-place drag updates.
+- refactor(session): `SessionPaneLayout::Split` gains `ratio: f64` with `#[serde(default)]`; old session files migrate automatically to `0.5`.
+- refactor(ui): `draw_pane_node` accepts `hover_sep: Option<&[WhichChild]>` and uses `layout::split_chunks` for consistent rendering; separator color driven by highlight state.
 
-- chore(brew): point stable `Formula/kandume.rb` tarball at v0.1.1 with checksum.
-- Close pane (`Ctrl-b x`): closing the last pane removes the session and focuses the previous session; if it was the only session, the current project slot is reset to a new home-directory project with one pane.
-- UI copy: call the middle tier **session** (not window/tab); sidebar lists session count per project.
 
 ## [0.1.1] - 2026-05-04
 
