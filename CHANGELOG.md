@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- chore: add `CONTRIBUTING.md` with branch strategy, commit convention, and release procedure.
+- ci: add GitHub Actions workflow (`.github/workflows/ci.yml`) — `fmt --check`, `clippy -D warnings`, `cargo test` on ubuntu-latest and macos-latest.
+
 - chore(brew): point stable `Formula/kandume.rb` tarball at v0.1.1 with checksum.
 - Close pane (`Ctrl-b x`): closing the last pane removes the session and focuses the previous session; if it was the only session, the current project slot is reset to a new home-directory project with one pane.
 - UI copy: call the middle tier **session** (not window/tab); sidebar lists session count per project.
