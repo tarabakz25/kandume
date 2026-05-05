@@ -8,7 +8,7 @@ use ratatui::{
 use vt100::{Cell, Screen};
 
 use crate::{
-    app::{App, PaneNode, RenameState, SIDEBAR_HEADER_HEIGHT, WindowPage},
+    app::{App, PaneNode, RenameState, SIDEBAR_HEADER_HEIGHT, WhichChild, WindowPage},
     layout,
     session::SplitDirection,
     terminal::{TerminalStatus, TerminalTab},
@@ -100,7 +100,7 @@ fn draw_workspace(frame: &mut Frame<'_>, app: &App, area: Rect) {
     draw_windows(frame, app, chunks[0]);
 
     if let Some(window) = app.active_window() {
-        draw_panes(frame, window, chunks[1]);
+        draw_panes(frame, window, app.separator_highlight(), chunks[1]);
     } else {
         frame.render_widget(Paragraph::new("no session"), chunks[1]);
     }
@@ -134,16 +134,27 @@ fn draw_windows(frame: &mut Frame<'_>, app: &App, area: Rect) {
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-fn draw_panes(frame: &mut Frame<'_>, window: &WindowPage, area: Rect) {
+fn draw_panes(
+    frame: &mut Frame<'_>,
+    window: &WindowPage,
+    hover_sep: Option<&[WhichChild]>,
+    area: Rect,
+) {
     if window.panes.is_empty() {
         frame.render_widget(Paragraph::new("no panes"), area);
         return;
     }
 
-    draw_pane_node(frame, window, &window.layout, area);
+    draw_pane_node(frame, window, &window.layout, hover_sep, area);
 }
 
-fn draw_pane_node(frame: &mut Frame<'_>, window: &WindowPage, node: &PaneNode, area: Rect) {
+fn draw_pane_node(
+    frame: &mut Frame<'_>,
+    window: &WindowPage,
+    node: &PaneNode,
+    hover_sep: Option<&[WhichChild]>,
+    area: Rect,
+) {
     match node {
         PaneNode::Leaf(index) => {
             if let Some(pane) = window.panes.get(*index) {
@@ -152,58 +163,59 @@ fn draw_pane_node(frame: &mut Frame<'_>, window: &WindowPage, node: &PaneNode, a
         }
         PaneNode::Split {
             direction,
+            ratio,
             first,
             second,
-        } => match direction {
-            SplitDirection::Vertical => {
-                let separator = u16::from(area.width > 2);
-                let available = area.width.saturating_sub(separator);
-                let first_width = (available / 2).max(1);
-                let second_width = available.saturating_sub(first_width).max(1);
-                let chunks = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([
-                        Constraint::Length(first_width),
-                        Constraint::Length(separator),
-                        Constraint::Length(second_width),
-                    ])
-                    .split(area);
-                draw_pane_node(frame, window, first, chunks[0]);
-                if separator > 0 {
-                    frame.render_widget(
-                        Block::default()
-                            .borders(Borders::LEFT)
-                            .border_style(Style::default().fg(Color::DarkGray)),
-                        chunks[1],
-                    );
+        } => {
+            let (first_chunk, sep_chunk, second_chunk) =
+                layout::split_chunks(area, *direction, *ratio);
+
+            // Highlight the separator if `hover_sep` points exactly to this node.
+            let highlighted = hover_sep == Some(&[]);
+
+            // Narrow `hover_sep` for each child.
+            let first_hover: Option<&[WhichChild]> = match hover_sep {
+                Some([WhichChild::First, rest @ ..]) => Some(rest),
+                _ => None,
+            };
+            let second_hover: Option<&[WhichChild]> = match hover_sep {
+                Some([WhichChild::Second, rest @ ..]) => Some(rest),
+                _ => None,
+            };
+
+            let sep_color = if highlighted {
+                Color::Yellow
+            } else {
+                Color::DarkGray
+            };
+
+            match direction {
+                SplitDirection::Vertical => {
+                    draw_pane_node(frame, window, first, first_hover, first_chunk);
+                    if sep_chunk.width > 0 {
+                        frame.render_widget(
+                            Block::default()
+                                .borders(Borders::LEFT)
+                                .border_style(Style::default().fg(sep_color)),
+                            sep_chunk,
+                        );
+                    }
+                    draw_pane_node(frame, window, second, second_hover, second_chunk);
                 }
-                draw_pane_node(frame, window, second, chunks[2]);
-            }
-            SplitDirection::Horizontal => {
-                let separator = u16::from(area.height > 2);
-                let available = area.height.saturating_sub(separator);
-                let first_height = (available / 2).max(1);
-                let second_height = available.saturating_sub(first_height).max(1);
-                let chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([
-                        Constraint::Length(first_height),
-                        Constraint::Length(separator),
-                        Constraint::Length(second_height),
-                    ])
-                    .split(area);
-                draw_pane_node(frame, window, first, chunks[0]);
-                if separator > 0 {
-                    frame.render_widget(
-                        Block::default()
-                            .borders(Borders::TOP)
-                            .border_style(Style::default().fg(Color::DarkGray)),
-                        chunks[1],
-                    );
+                SplitDirection::Horizontal => {
+                    draw_pane_node(frame, window, first, first_hover, first_chunk);
+                    if sep_chunk.height > 0 {
+                        frame.render_widget(
+                            Block::default()
+                                .borders(Borders::TOP)
+                                .border_style(Style::default().fg(sep_color)),
+                            sep_chunk,
+                        );
+                    }
+                    draw_pane_node(frame, window, second, second_hover, second_chunk);
                 }
-                draw_pane_node(frame, window, second, chunks[2]);
             }
-        },
+        }
     }
 }
 
@@ -213,7 +225,21 @@ fn draw_pane_leaf(frame: &mut Frame<'_>, pane: &TerminalTab, active: bool, area:
         .constraints([Constraint::Length(1), Constraint::Min(1)])
         .split(area);
     frame.render_widget(Paragraph::new(pane_title(pane, active)), chunks[0]);
-    frame.render_widget(Paragraph::new(terminal_lines(pane.screen())), chunks[1]);
+    let screen = pane.screen();
+    frame.render_widget(Paragraph::new(terminal_lines(screen)), chunks[1]);
+    if active && !screen.hide_cursor() {
+        let (row, col) = screen.cursor_position();
+        let content = chunks[1];
+        let x = content
+            .x
+            .saturating_add(col)
+            .min(content.x + content.width.saturating_sub(1));
+        let y = content
+            .y
+            .saturating_add(row)
+            .min(content.y + content.height.saturating_sub(1));
+        frame.set_cursor_position((x, y));
+    }
 }
 
 fn pane_title(pane: &TerminalTab, active: bool) -> Line<'static> {
