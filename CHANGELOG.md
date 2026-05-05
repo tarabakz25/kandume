@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- fix(ui): show PTY cursor in active pane — `draw_pane_leaf` now calls `frame.set_cursor_position` using `screen.cursor_position()`, clamped to the content area; cursor is hidden when the PTY sends `\x1b[?25l` (`screen.hide_cursor()`).
 - docs: rewrite `README.md` and `CONTRIBUTING.md` in English.
 - chore: add `CONTRIBUTING.md` with branch strategy, commit convention, and release procedure.
 - ci: add GitHub Actions workflow (`.github/workflows/ci.yml`) — `fmt --check`, `clippy -D warnings`, `cargo test` on ubuntu-latest and macos-latest.
