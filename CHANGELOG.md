@@ -2,9 +2,20 @@
 
 ## Unreleased
 
-- Homebrew: add `Formula/kandume.rb` so the repo can be used as `brew tap tarabakz25/kandume https://github.com/tarabakz25/kandume.git` and installed with `brew install kandume` (stable tarball v0.1.0) or `brew install kandume --HEAD` (branch `develop`).
+- docs: rewrite `README.md` and `CONTRIBUTING.md` in English.
+- chore: add `CONTRIBUTING.md` with branch strategy, commit convention, and release procedure.
+- ci: add GitHub Actions workflow (`.github/workflows/ci.yml`) — `fmt --check`, `clippy -D warnings`, `cargo test` on ubuntu-latest and macos-latest.
+- fix(clippy): resolve all 8 clippy warnings (`collapsible_if`, `useless_conversion` ×4, `too_many_arguments`, `question_mark`, `identity_op`).
+
+- chore(brew): point stable `Formula/kandume.rb` tarball at v0.1.1 with checksum.
+- Close pane (`Ctrl-b x`): closing the last pane removes the session and focuses the previous session; if it was the only session, the current project slot is reset to a new home-directory project with one pane.
+- UI copy: call the middle tier **session** (not window/tab); sidebar lists session count per project.
+
+## [0.1.1] - 2026-05-04
+
+- Homebrew: add `Formula/kandume.rb` so the repo can be used as `brew tap tarabakz25/kandume https://github.com/tarabakz25/kandume.git` and installed with `brew install kandume` (stable tarball) or `brew install kandume --HEAD` (branch `develop`).
 - CLI: support `--version` / `-V` before starting the TUI (prints `CARGO_PKG_VERSION`).
-- Added Japanese `README.md` with install, keybindings, mouse, and session file location.
+- Japanese `README.md` with install, keybindings, mouse, and session file location.
 
 ## [0.1.0] - 2026-05-04
 

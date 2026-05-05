@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
@@ -258,30 +258,37 @@ impl App {
         let root = layout::compute_root_areas(area);
 
         if layout::pointer_in_rect(root.sidebar, ev.column, ev.row) {
-            if matches!(ev.kind, MouseEventKind::Down(MouseButton::Left)) {
-                if let Some(idx) = layout::hit_project_row(
+            if matches!(ev.kind, MouseEventKind::Down(MouseButton::Left))
+                && let Some(idx) = layout::hit_project_row(
                     root.projects_inner,
                     ev.column,
                     ev.row,
                     self.projects.len(),
-                ) {
-                    self.select_project(idx);
-                    self.mouse_grab_pane = None;
-                }
+                )
+            {
+                self.select_project(idx);
+                self.mouse_grab_pane = None;
             }
             return Ok(());
         }
 
-        let hit = self
-            .active_window()
-            .and_then(|window| layout::hit_test_pane_stack(window, root.pane_stack, ev.column, ev.row));
+        let hit = self.active_window().and_then(|window| {
+            layout::hit_test_pane_stack(window, root.pane_stack, ev.column, ev.row)
+        });
 
         match ev.kind {
             MouseEventKind::Up(_) => {
                 if let Some(pi) = self.mouse_grab_pane {
                     let (lc, lr) = self.mouse_local_for_pane(pi, ev.column, ev.row, &root);
                     if let Some((pcols, prows)) = self.pane_pty_size(pi) {
-                        self.write_mouse_to_pane(pi, ev.kind, ev.modifiers, lc, lr, pcols, prows)?;
+                        self.write_mouse_to_pane(
+                            pi,
+                            ev.kind,
+                            ev.modifiers,
+                            lc,
+                            lr,
+                            (pcols, prows),
+                        )?;
                     }
                 }
                 self.mouse_grab_pane = None;
@@ -290,7 +297,14 @@ impl App {
                 if let Some(pi) = self.mouse_grab_pane {
                     let (lc, lr) = self.mouse_local_for_pane(pi, ev.column, ev.row, &root);
                     if let Some((pcols, prows)) = self.pane_pty_size(pi) {
-                        self.write_mouse_to_pane(pi, ev.kind, ev.modifiers, lc, lr, pcols, prows)?;
+                        self.write_mouse_to_pane(
+                            pi,
+                            ev.kind,
+                            ev.modifiers,
+                            lc,
+                            lr,
+                            (pcols, prows),
+                        )?;
                     }
                 }
             }
@@ -299,70 +313,64 @@ impl App {
             MouseEventKind::ScrollDown
             | MouseEventKind::ScrollUp
             | MouseEventKind::ScrollLeft
-            | MouseEventKind::ScrollRight => {
-                match hit {
-                    Some(layout::PaneHit::Terminal {
-                        pane,
-                        local_col,
-                        local_row,
-                    }) => {
-                        if let Some(window) = self.active_window_mut() {
-                            window.active_pane = pane;
-                        }
-                        if let Some((pcols, prows)) = self.pane_pty_size(pane) {
-                            self.write_mouse_to_pane(
-                                pane,
-                                ev.kind,
-                                ev.modifiers,
-                                local_col,
-                                local_row,
-                                pcols,
-                                prows,
-                            )?;
-                        }
+            | MouseEventKind::ScrollRight => match hit {
+                Some(layout::PaneHit::Terminal {
+                    pane,
+                    local_col,
+                    local_row,
+                }) => {
+                    if let Some(window) = self.active_window_mut() {
+                        window.active_pane = pane;
                     }
-                    Some(layout::PaneHit::Title(pi)) => {
-                        if let Some(window) = self.active_window_mut() {
-                            window.active_pane = pi;
-                        }
-                    }
-                    None => {}
-                }
-            }
-            MouseEventKind::Down(_) => {
-                match hit {
-                    Some(layout::PaneHit::Title(pi)) => {
-                        if let Some(window) = self.active_window_mut() {
-                            window.active_pane = pi;
-                        }
-                        self.mouse_grab_pane = None;
-                    }
-                    Some(layout::PaneHit::Terminal {
-                        pane,
-                        local_col,
-                        local_row,
-                    }) => {
-                        if let Some(window) = self.active_window_mut() {
-                            window.active_pane = pane;
-                        }
-                        self.mouse_grab_pane = Some(pane);
-                        if let Some((pcols, prows)) = self.pane_pty_size(pane) {
-                            self.write_mouse_to_pane(
-                                pane,
-                                ev.kind,
-                                ev.modifiers,
-                                local_col,
-                                local_row,
-                                pcols,
-                                prows,
-                            )?;
-                        }
-                    }
-                    None => {
-                        self.mouse_grab_pane = None;
+                    if let Some((pcols, prows)) = self.pane_pty_size(pane) {
+                        self.write_mouse_to_pane(
+                            pane,
+                            ev.kind,
+                            ev.modifiers,
+                            local_col,
+                            local_row,
+                            (pcols, prows),
+                        )?;
                     }
                 }
-            }
+                Some(layout::PaneHit::Title(pi)) => {
+                    if let Some(window) = self.active_window_mut() {
+                        window.active_pane = pi;
+                    }
+                }
+                None => {}
+            },
+            MouseEventKind::Down(_) => match hit {
+                Some(layout::PaneHit::Title(pi)) => {
+                    if let Some(window) = self.active_window_mut() {
+                        window.active_pane = pi;
+                    }
+                    self.mouse_grab_pane = None;
+                }
+                Some(layout::PaneHit::Terminal {
+                    pane,
+                    local_col,
+                    local_row,
+                }) => {
+                    if let Some(window) = self.active_window_mut() {
+                        window.active_pane = pane;
+                    }
+                    self.mouse_grab_pane = Some(pane);
+                    if let Some((pcols, prows)) = self.pane_pty_size(pane) {
+                        self.write_mouse_to_pane(
+                            pane,
+                            ev.kind,
+                            ev.modifiers,
+                            local_col,
+                            local_row,
+                            (pcols, prows),
+                        )?;
+                    }
+                }
+                None => {
+                    self.mouse_grab_pane = None;
+                }
+            },
         }
 
         Ok(())
@@ -389,8 +397,8 @@ impl App {
             return (0, 0);
         };
         let (rows, cols) = pane.screen().size();
-        let max_c = u16::try_from(cols.saturating_sub(1)).unwrap_or(0);
-        let max_r = u16::try_from(rows.saturating_sub(1)).unwrap_or(0);
+        let max_c = cols.saturating_sub(1);
+        let max_r = rows.saturating_sub(1);
         (lc.min(max_c), lr.min(max_r))
     }
 
@@ -398,10 +406,7 @@ impl App {
         let window = self.active_window()?;
         let pane = window.panes.get(pane_index)?;
         let (rows, cols) = pane.screen().size();
-        Some((
-            u16::try_from(cols).unwrap_or(u16::MAX),
-            u16::try_from(rows).unwrap_or(u16::MAX),
-        ))
+        Some((cols, rows))
     }
 
     fn write_mouse_to_pane(
@@ -411,9 +416,9 @@ impl App {
         modifiers: KeyModifiers,
         lc: u16,
         lr: u16,
-        cols: u16,
-        rows: u16,
+        pane_size: (u16, u16),
     ) -> Result<()> {
+        let (cols, rows) = pane_size;
         let Some(bytes) = crate::mouse::encode_sgr_mouse(kind, modifiers, lc, lr, cols, rows)
         else {
             return Ok(());
@@ -620,13 +625,55 @@ impl App {
     }
 
     fn close_active_pane(&mut self) -> Result<()> {
-        let Some(window) = self.active_window_mut() else {
-            return Ok(());
+        let ap = self.active_project;
+
+        let (closes_window, win_idx) = match self.projects.get(ap) {
+            None => return Ok(()),
+            Some(p) => {
+                let wi = p.active_window;
+                match p.windows.get(wi) {
+                    None => return Ok(()),
+                    Some(w) => (w.panes.len() <= 1, wi),
+                }
+            }
         };
 
-        if window.panes.len() <= 1 {
-            bail!("cannot close the last pane in a window");
+        if closes_window {
+            let emptied_project = {
+                let Some(project) = self.projects.get_mut(ap) else {
+                    return Ok(());
+                };
+                project.windows.remove(win_idx);
+                project.windows.is_empty()
+            };
+
+            if emptied_project {
+                let cwd = dirs::home_dir().context("failed to resolve home directory")?;
+                let name = project_name(&cwd);
+                let window = self.new_window_for_cwd(cwd.clone(), "window 1".to_string())?;
+                let Some(project) = self.projects.get_mut(ap) else {
+                    return Ok(());
+                };
+                project.name = name;
+                project.cwd = cwd;
+                project.windows = vec![window];
+                project.active_window = 0;
+                return self.resize_all_panes();
+            }
+
+            let Some(project) = self.projects.get_mut(ap) else {
+                return Ok(());
+            };
+            project.active_window = win_idx.saturating_sub(1);
+            return self.resize_all_panes();
         }
+
+        let Some(project) = self.projects.get_mut(ap) else {
+            return Ok(());
+        };
+        let Some(window) = project.windows.get_mut(win_idx) else {
+            return Ok(());
+        };
 
         window.panes.remove(window.active_pane);
         window.layout = std::mem::replace(&mut window.layout, PaneNode::Leaf(0))
