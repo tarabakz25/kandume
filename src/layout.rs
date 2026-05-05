@@ -110,9 +110,7 @@ fn hit_pane_node(
 ) -> Option<PaneHit> {
     match node {
         PaneNode::Leaf(index) => {
-            if window.panes.get(*index).is_none() {
-                return None;
-            }
+            window.panes.get(*index)?;
             hit_pane_leaf(*index, area, col, row)
         }
         PaneNode::Split {

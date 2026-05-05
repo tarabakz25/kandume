@@ -49,7 +49,7 @@ fn mouse_cb(kind: MouseEventKind) -> (u8, bool) {
         MouseEventKind::Down(MouseButton::Middle) => (1_u8, false),
         MouseEventKind::Down(MouseButton::Right) => (2_u8, false),
         MouseEventKind::Up(_) => (3_u8, true),
-        MouseEventKind::Drag(MouseButton::Left) => (0_u8 | 0x20, false),
+        MouseEventKind::Drag(MouseButton::Left) => (0x20_u8, false),
         MouseEventKind::Drag(MouseButton::Middle) => (1_u8 | 0x20, false),
         MouseEventKind::Drag(MouseButton::Right) => (2_u8 | 0x20, false),
         MouseEventKind::Moved => (3_u8 | 0x20, false),

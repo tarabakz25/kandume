@@ -258,16 +258,16 @@ impl App {
         let root = layout::compute_root_areas(area);
 
         if layout::pointer_in_rect(root.sidebar, ev.column, ev.row) {
-            if matches!(ev.kind, MouseEventKind::Down(MouseButton::Left)) {
-                if let Some(idx) = layout::hit_project_row(
+            if matches!(ev.kind, MouseEventKind::Down(MouseButton::Left))
+                && let Some(idx) = layout::hit_project_row(
                     root.projects_inner,
                     ev.column,
                     ev.row,
                     self.projects.len(),
-                ) {
-                    self.select_project(idx);
-                    self.mouse_grab_pane = None;
-                }
+                )
+            {
+                self.select_project(idx);
+                self.mouse_grab_pane = None;
             }
             return Ok(());
         }
@@ -281,7 +281,7 @@ impl App {
                 if let Some(pi) = self.mouse_grab_pane {
                     let (lc, lr) = self.mouse_local_for_pane(pi, ev.column, ev.row, &root);
                     if let Some((pcols, prows)) = self.pane_pty_size(pi) {
-                        self.write_mouse_to_pane(pi, ev.kind, ev.modifiers, lc, lr, pcols, prows)?;
+                        self.write_mouse_to_pane(pi, ev.kind, ev.modifiers, lc, lr, (pcols, prows))?;
                     }
                 }
                 self.mouse_grab_pane = None;
@@ -290,7 +290,7 @@ impl App {
                 if let Some(pi) = self.mouse_grab_pane {
                     let (lc, lr) = self.mouse_local_for_pane(pi, ev.column, ev.row, &root);
                     if let Some((pcols, prows)) = self.pane_pty_size(pi) {
-                        self.write_mouse_to_pane(pi, ev.kind, ev.modifiers, lc, lr, pcols, prows)?;
+                        self.write_mouse_to_pane(pi, ev.kind, ev.modifiers, lc, lr, (pcols, prows))?;
                     }
                 }
             }
@@ -315,8 +315,7 @@ impl App {
                             ev.modifiers,
                             local_col,
                             local_row,
-                            pcols,
-                            prows,
+                            (pcols, prows),
                         )?;
                     }
                 }
@@ -350,8 +349,7 @@ impl App {
                             ev.modifiers,
                             local_col,
                             local_row,
-                            pcols,
-                            prows,
+                            (pcols, prows),
                         )?;
                     }
                 }
@@ -385,8 +383,8 @@ impl App {
             return (0, 0);
         };
         let (rows, cols) = pane.screen().size();
-        let max_c = u16::try_from(cols.saturating_sub(1)).unwrap_or(0);
-        let max_r = u16::try_from(rows.saturating_sub(1)).unwrap_or(0);
+        let max_c = cols.saturating_sub(1);
+        let max_r = rows.saturating_sub(1);
         (lc.min(max_c), lr.min(max_r))
     }
 
@@ -394,10 +392,7 @@ impl App {
         let window = self.active_window()?;
         let pane = window.panes.get(pane_index)?;
         let (rows, cols) = pane.screen().size();
-        Some((
-            u16::try_from(cols).unwrap_or(u16::MAX),
-            u16::try_from(rows).unwrap_or(u16::MAX),
-        ))
+        Some((cols, rows))
     }
 
     fn write_mouse_to_pane(
@@ -407,9 +402,9 @@ impl App {
         modifiers: KeyModifiers,
         lc: u16,
         lr: u16,
-        cols: u16,
-        rows: u16,
+        pane_size: (u16, u16),
     ) -> Result<()> {
+        let (cols, rows) = pane_size;
         let Some(bytes) = crate::mouse::encode_sgr_mouse(kind, modifiers, lc, lr, cols, rows)
         else {
             return Ok(());
