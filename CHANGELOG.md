@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- docs: rewrite `README.md` and `CONTRIBUTING.md` in English.
 - chore: add `CONTRIBUTING.md` with branch strategy, commit convention, and release procedure.
 - ci: add GitHub Actions workflow (`.github/workflows/ci.yml`) — `fmt --check`, `clippy -D warnings`, `cargo test` on ubuntu-latest and macos-latest.
 

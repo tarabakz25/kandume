@@ -1,43 +1,41 @@
 # kandume
 
-ターミナル上で動く、[Ratatui](https://github.com/ratatui-org/ratatui) 製の多重セッション用 CLI。**プロジェクト → セッション → ペイン**の階層と、[tmux](https://github.com/tmux/tmux) 風の **Ctrl-b プレフィックス**で操作します。各ペインは実際のシェル（PTY）がぶら下がります。
+A terminal multiplexer built with [Ratatui](https://github.com/ratatui-org/ratatui). Organizes work into a **project → session → pane** hierarchy and uses a [tmux](https://github.com/tmux/tmux)-style **Ctrl-b prefix** for keybindings. Each pane runs a real shell backed by a PTY.
 
-## 動作環境
+## Requirements
 
-- Rust ツールチェーン（2024 edition でビルド）
-- Unix 系で PTY が使えること（macOS / Linux を想定）
-- `$SHELL` が既定のログインシェルとして参照されます（未設定時は `/bin/zsh`）
+- Rust toolchain (built with the 2024 edition)
+- Unix-like OS with PTY support — macOS and Linux only
+- `$SHELL` is used as the shell per pane; falls back to `/bin/zsh` if unset
 
-## インストール
+## Installation
 
-### Homebrew（macOS / Linuxbrew）
+### Homebrew (macOS / Linuxbrew)
 
-このリポジトリを [Homebrew tap](https://docs.brew.sh/Taps) として登録してからインストールします。
+Register this repository as a [Homebrew tap](https://docs.brew.sh/Taps) and install:
 
 ```sh
 brew tap tarabakz25/kandume https://github.com/tarabakz25/kandume.git
 brew install kandume
 ```
 
-開発ブランチの最新を入れる場合は次です。
+To install the latest commit from the development branch:
 
 ```sh
 brew install kandume --HEAD
 ```
 
-`--HEAD` は tap 先の `develop` をビルドします。
+`--HEAD` builds from the `develop` branch of the tap.
 
-リリース後に Formula の tarball を新しいタグへ更新するときは、次で `sha256` を取得して `Formula/kandume.rb` の `url` / `sha256` を合わせてください。
+To update the Formula tarball to a new tag after a release, get the `sha256` and update `Formula/kandume.rb`:
 
 ```sh
 curl -sL "https://github.com/tarabakz25/kandume/archive/refs/tags/v0.1.2.tar.gz" | shasum -a 256
 ```
 
-（`v0.1.2` は実際のタグ名に読み替え。）
+(Replace `v0.1.2` with the actual tag name.)
 
-### ソースから
-
-リポジトリをクローンしてリリースビルドします。
+### From source
 
 ```sh
 git clone https://github.com/tarabakz25/kandume.git
@@ -45,51 +43,53 @@ cd kandume
 cargo build --release
 ```
 
-バイナリは `target/release/kandume` に出力されます。
+The binary is written to `target/release/kandume`.
 
-## 使い方
+## Usage
 
 ```sh
 ./target/release/kandume
 ```
 
-起動すると左にプロジェクト一覧、右にアクティブプロジェクトのセッション／ペインが表示されます。キーボードはアクティブなペインのシェルへ、そのほかは UI とプレフィックスが処理します。
+On startup, the left side shows the project list and the right side shows the sessions and panes of the active project. Keystrokes are forwarded to the active pane's shell; all other input is handled by the UI or the prefix layer.
 
-### Ctrl-b プレフィックス
+### Ctrl-b prefix
 
-一度 **Ctrl-b** を押すとプレフィックス状態になり、その後に別キーを押してコマンドを実行します（ステータス行にヒントが出ます）。
+Press **Ctrl-b** once to enter prefix mode, then press a second key to run a command. A hint is shown in the status line.
 
-| キー | 動作 |
-|------|------|
-| **Ctrl-b** を続けて **Ctrl-b** | シェルへリテラル `^B`（0x02）を送信 |
-| **t** | 新規プロジェクト（カレントは **ホームディレクトリ**） |
-| **c** | 現在のプロジェクトにセッションを追加 |
-| **%** | 現在のセッションを縦分割 |
-| **"** | 現在のセッションを横分割 |
-| **n** / **p** | 次／前のプロジェクト |
-| **1–9** | プロジェクトを番号で選択 |
-| **]** / **[** | 次／前のセッション |
-| **o** / **;** | 次／前のペイン |
-| **x** | アクティブなペインを閉じる（セッションにペインが 1 枚だけならセッションごと閉じて **ひとつ前のセッション** に移る。プロジェクトにセッションが残らなくなったら、その枠を **ホームディレクトリの新規プロジェクト**（セッション 1・ペイン 1）に置き換える） |
-| **,** / **.** / **r** | プロジェクト／セッション／ペインの名前変更 |
-| **d** | セッションを保存して終了 |
-| **q** | 保存せず終了 |
-| **?** | ヘルプの表示／非表示 |
+| Key | Action |
+|-----|--------|
+| **Ctrl-b** then **Ctrl-b** | Send literal `^B` (0x02) to the shell |
+| **t** | New project (working directory: home directory) |
+| **c** | Add a session to the current project |
+| **%** | Split the current session vertically |
+| **"** | Split the current session horizontally |
+| **n** / **p** | Next / previous project |
+| **1–9** | Select a project by number |
+| **]** / **[** | Next / previous session |
+| **o** / **;** | Next / previous pane |
+| **x** | Close the active pane. If it is the only pane in the session, the session is also closed and focus moves to the previous session. If the project has no sessions left, the slot is replaced with a new home-directory project (1 session, 1 pane). |
+| **,** / **.** / **r** | Rename the current project / session / pane |
+| **d** | Save session and quit |
+| **q** | Quit without saving |
+| **?** | Toggle help overlay |
 
-リネーム中は **Enter** で確定、**Esc** でキャンセルです。
+Press **Enter** to confirm a rename, **Esc** to cancel.
 
-### マウス
+### Mouse
 
-マウスが使える端末では、左のプロジェクト行クリックで切り替え、ペイン上ではクリック・ドラッグ・ホイールを XTerm SGR 形式で PTY に転送します（例: Vim は `:set mouse=a`）。ホバーだけの動きは PTY に送らず、シェルにゴミ文字が出ないようにしてあります。
+In terminals that support mouse input, clicking a project row in the left sidebar switches to that project. Clicks, drags, and scroll wheel events over a pane are forwarded to the PTY in XTerm SGR format (e.g. Vim: `:set mouse=a`). Hover-only motion is suppressed so shells do not receive spurious CSI sequences.
 
-### セッションの保存
+### Session persistence
 
-**Ctrl-b d** で終了したとき、レイアウト・名前・作業ディレクトリなどが TOML で保存されます。
+When you exit with **Ctrl-b d**, the layout, names, and working directories are saved as TOML.
 
-- **パス**: プラットフォームのユーザー設定ディレクトリ直下の `kandume/session.toml`（例: Linux でよくあるのは `~/.config/kandume/session.toml`。macOS では `~/Library/Application Support/kandume/session.toml` になります）
-- **Ctrl-b q** では保存されません
+- **Path**: `kandume/session.toml` inside the platform config directory
+  - macOS: `~/Library/Application Support/kandume/session.toml`
+  - Linux: `~/.config/kandume/session.toml`
+- **Ctrl-b q** exits without saving.
 
-## 開発
+## Development
 
 ```sh
 cargo build
