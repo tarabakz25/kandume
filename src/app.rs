@@ -281,7 +281,14 @@ impl App {
                 if let Some(pi) = self.mouse_grab_pane {
                     let (lc, lr) = self.mouse_local_for_pane(pi, ev.column, ev.row, &root);
                     if let Some((pcols, prows)) = self.pane_pty_size(pi) {
-                        self.write_mouse_to_pane(pi, ev.kind, ev.modifiers, lc, lr, (pcols, prows))?;
+                        self.write_mouse_to_pane(
+                            pi,
+                            ev.kind,
+                            ev.modifiers,
+                            lc,
+                            lr,
+                            (pcols, prows),
+                        )?;
                     }
                 }
                 self.mouse_grab_pane = None;
@@ -290,7 +297,14 @@ impl App {
                 if let Some(pi) = self.mouse_grab_pane {
                     let (lc, lr) = self.mouse_local_for_pane(pi, ev.column, ev.row, &root);
                     if let Some((pcols, prows)) = self.pane_pty_size(pi) {
-                        self.write_mouse_to_pane(pi, ev.kind, ev.modifiers, lc, lr, (pcols, prows))?;
+                        self.write_mouse_to_pane(
+                            pi,
+                            ev.kind,
+                            ev.modifiers,
+                            lc,
+                            lr,
+                            (pcols, prows),
+                        )?;
                     }
                 }
             }
