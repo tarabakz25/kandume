@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.1.2] - 2026-05-06
 
 - fix(mouse): do not forward SGR mouse bytes to PTY unless the child app has enabled a mouse protocol mode (`?1000h` / `?1002h` / `?1003h`). Clicks on a plain shell previously printed `0;col;rowM3;col;rowm` garbage; now only apps that requested mouse tracking receive the encoded events. The same guard applies to drag, release, and scroll events.
 - feat(mouse): pane-title click — clicking a pane's title row activates that pane.
@@ -10,7 +10,6 @@
 - refactor(app): `PaneNode::Split` gains `ratio: f64`; `WhichChild`, `SplitPath`, `SeparatorDrag` types added; `ratio_at_path_mut` for in-place drag updates.
 - refactor(session): `SessionPaneLayout::Split` gains `ratio: f64` with `#[serde(default)]`; old session files migrate automatically to `0.5`.
 - refactor(ui): `draw_pane_node` accepts `hover_sep: Option<&[WhichChild]>` and uses `layout::split_chunks` for consistent rendering; separator color driven by highlight state.
-
 
 ## [0.1.1] - 2026-05-04
 
