@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- feat(mouse): window-tab click — clicking the tab bar selects the corresponding session.
+- fix(mouse): do not forward SGR mouse bytes to PTY unless the child app has enabled a mouse protocol mode (`?1000h` / `?1002h` / `?1003h`). Clicks on a plain shell previously printed `0;col;rowM3;col;rowm` garbage; now only apps that requested mouse tracking receive the encoded events. The same guard applies to drag, release, and scroll events.
 - feat(mouse): pane-title click — clicking a pane's title row activates that pane.
 - feat(mouse): separator drag-resize — dragging a vertical/horizontal split separator resizes both halves in real time; split ratio (`f64`) persisted in session TOML.
 - feat(mouse): separator hover highlight — hovering over a separator turns it yellow (`Color::Yellow`); `?1003h` all-motion tracking is now active (removed the previous `?1003l` override in `main.rs`).

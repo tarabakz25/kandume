@@ -341,7 +341,9 @@ impl App {
                         *ratio = new_ratio;
                     }
                     self.resize_all_panes()?;
-                } else if let Some(pi) = self.mouse_grab_pane {
+                } else if let Some(pi) = self.mouse_grab_pane
+                    && self.pane_has_mouse_mode(pi)
+                {
                     let (lc, lr) = self.mouse_local_for_pane(pi, ev.column, ev.row, &root);
                     if let Some((pcols, prows)) = self.pane_pty_size(pi) {
                         self.write_mouse_to_pane(
@@ -362,7 +364,9 @@ impl App {
                     self.separator_drag = None;
                     self.mouse_grab_pane = None;
                 } else {
-                    if let Some(pi) = self.mouse_grab_pane {
+                    if let Some(pi) = self.mouse_grab_pane
+                        && self.pane_has_mouse_mode(pi)
+                    {
                         let (lc, lr) =
                             self.mouse_local_for_pane(pi, ev.column, ev.row, &root);
                         if let Some((pcols, prows)) = self.pane_pty_size(pi) {
@@ -397,7 +401,9 @@ impl App {
                         if let Some(window) = self.active_window_mut() {
                             window.active_pane = pane;
                         }
-                        if let Some((pcols, prows)) = self.pane_pty_size(pane) {
+                        if self.pane_has_mouse_mode(pane)
+                            && let Some((pcols, prows)) = self.pane_pty_size(pane)
+                        {
                             self.write_mouse_to_pane(
                                 pane,
                                 ev.kind,
@@ -466,16 +472,20 @@ impl App {
                         if let Some(window) = self.active_window_mut() {
                             window.active_pane = pane;
                         }
-                        self.mouse_grab_pane = Some(pane);
-                        if let Some((pcols, prows)) = self.pane_pty_size(pane) {
-                            self.write_mouse_to_pane(
-                                pane,
-                                ev.kind,
-                                ev.modifiers,
-                                local_col,
-                                local_row,
-                                (pcols, prows),
-                            )?;
+                        if self.pane_has_mouse_mode(pane) {
+                            self.mouse_grab_pane = Some(pane);
+                            if let Some((pcols, prows)) = self.pane_pty_size(pane) {
+                                self.write_mouse_to_pane(
+                                    pane,
+                                    ev.kind,
+                                    ev.modifiers,
+                                    local_col,
+                                    local_row,
+                                    (pcols, prows),
+                                )?;
+                            }
+                        } else {
+                            self.mouse_grab_pane = None;
                         }
                     }
                     None => {
@@ -512,6 +522,18 @@ impl App {
         let max_c = cols.saturating_sub(1);
         let max_r = rows.saturating_sub(1);
         (lc.min(max_c), lr.min(max_r))
+    }
+
+    /// Returns true if the child application running in `pane_index` has
+    /// enabled any mouse protocol mode (i.e. it can consume SGR mouse bytes).
+    /// When this is false we must not forward mouse events; they would appear
+    /// as literal garbage text in the shell.
+    fn pane_has_mouse_mode(&self, pane_index: usize) -> bool {
+        self.active_window()
+            .and_then(|w| w.panes.get(pane_index))
+            .is_some_and(|pane| {
+                pane.screen().mouse_protocol_mode() != vt100::MouseProtocolMode::None
+            })
     }
 
     fn pane_pty_size(&self, pane_index: usize) -> Option<(u16, u16)> {
