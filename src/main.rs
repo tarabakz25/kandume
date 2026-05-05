@@ -6,10 +6,7 @@ mod session;
 mod terminal;
 mod ui;
 
-use std::{
-    io::{self, Write},
-    panic,
-};
+use std::{io, panic};
 
 use anyhow::Result;
 use app::App;
@@ -34,10 +31,6 @@ fn main() -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    // Crossterm enables `?1003h` (all-motion); that floods hover events and we used to forward them
-    // to the PTY, which shells echo as garbage. Keep button/drag tracking (`?1002h`) for clicks.
-    stdout.write_all(b"\x1b[?1003l")?;
-    stdout.flush()?;
 
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
