@@ -158,7 +158,18 @@ fn draw_pane_node(
     match node {
         PaneNode::Leaf(index) => {
             if let Some(pane) = window.panes.get(*index) {
-                draw_pane_leaf(frame, pane, *index == window.active_pane, area);
+                let is_active = *index == window.active_pane;
+                draw_pane_leaf(frame, pane, is_active, area);
+                if is_active {
+                    // Use LEFT|RIGHT|BOTTOM only so the top border does not
+                    // overwrite the title row drawn by draw_pane_leaf above.
+                    frame.render_widget(
+                        Block::default()
+                            .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
+                            .border_style(Style::default().fg(Color::Cyan)),
+                        area,
+                    );
+                }
             }
         }
         PaneNode::Split {
