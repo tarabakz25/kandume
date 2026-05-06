@@ -131,6 +131,70 @@ fn draw_windows(frame: &mut Frame<'_>, app: &App, area: Rect) {
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
+fn collect_separators(
+    node: &PaneNode,
+    area: Rect,
+    hover_sep: Option<&[WhichChild]>,
+    vertical: &mut Vec<(u16, u16, u16, Color)>,
+    horizontal: &mut Vec<(u16, u16, u16, Color)>,
+) {
+    match node {
+        PaneNode::Leaf(_) => {}
+        PaneNode::Split { direction, ratio, first, second } => {
+            let (first_chunk, sep_chunk, second_chunk) =
+                layout::split_chunks(area, *direction, *ratio);
+            let highlighted = hover_sep == Some(&[]);
+            let sep_color = if highlighted { Color::Yellow } else { Color::DarkGray };
+
+            let first_hover: Option<&[WhichChild]> = match hover_sep {
+                Some([WhichChild::First, rest @ ..]) => Some(rest),
+                _ => None,
+            };
+            let second_hover: Option<&[WhichChild]> = match hover_sep {
+                Some([WhichChild::Second, rest @ ..]) => Some(rest),
+                _ => None,
+            };
+
+            match direction {
+                SplitDirection::Vertical => {
+                    if sep_chunk.width > 0 {
+                        vertical.push((sep_chunk.x, sep_chunk.y, sep_chunk.y + sep_chunk.height, sep_color));
+                    }
+                }
+                SplitDirection::Horizontal => {
+                    if sep_chunk.height > 0 {
+                        horizontal.push((sep_chunk.y, sep_chunk.x, sep_chunk.x + sep_chunk.width, sep_color));
+                    }
+                }
+            }
+            collect_separators(first, first_chunk, first_hover, vertical, horizontal);
+            collect_separators(second, second_chunk, second_hover, vertical, horizontal);
+        }
+    }
+}
+
+fn draw_junctions(
+    frame: &mut Frame<'_>,
+    vertical: &[(u16, u16, u16, Color)],
+    horizontal: &[(u16, u16, u16, Color)],
+) {
+    for &(x, y_start, y_end, v_color) in vertical {
+        for &(y, x_start, x_end, h_color) in horizontal {
+            if y >= y_start && y < y_end && x >= x_start && x < x_end {
+                let color = if v_color == Color::Yellow || h_color == Color::Yellow {
+                    Color::Yellow
+                } else {
+                    Color::DarkGray
+                };
+                frame.render_widget(
+                    Paragraph::new(Span::styled("┼", Style::default().fg(color))),
+                    Rect { x, y, width: 1, height: 1 },
+                );
+            }
+        }
+    }
+}
+
 fn draw_panes(
     frame: &mut Frame<'_>,
     window: &WindowPage,
@@ -143,6 +207,11 @@ fn draw_panes(
     }
 
     draw_pane_node(frame, window, &window.layout, hover_sep, area);
+
+    let mut vertical = Vec::new();
+    let mut horizontal = Vec::new();
+    collect_separators(&window.layout, area, hover_sep, &mut vertical, &mut horizontal);
+    draw_junctions(frame, &vertical, &horizontal);
 }
 
 fn draw_pane_node(
