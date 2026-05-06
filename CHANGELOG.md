@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- feat(ui): highlight active pane with a cyan border overlay (`Block::border_style`) to visually distinguish the focused pane from inactive ones. Closes #9.
+
 ## [0.1.2] - 2026-05-06
 
 - fix(mouse): do not forward SGR mouse bytes to PTY unless the child app has enabled a mouse protocol mode (`?1000h` / `?1002h` / `?1003h`). Clicks on a plain shell previously printed `0;col;rowM3;col;rowm` garbage; now only apps that requested mouse tracking receive the encoded events. The same guard applies to drag, release, and scroll events.
