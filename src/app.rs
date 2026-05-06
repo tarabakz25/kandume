@@ -30,6 +30,7 @@ pub(crate) enum RenameState {
     Window { buffer: String },
     Pane { buffer: String },
     ConfirmDeleteProject,
+    PaneCommand { buffer: String },
 }
 
 pub(crate) struct Project {
@@ -272,6 +273,7 @@ impl App {
             InputAction::StartWindowRename => self.start_window_rename(),
             InputAction::StartPaneRename => self.start_pane_rename(),
             InputAction::DeleteProject => self.start_confirm_delete_project(),
+            InputAction::StartPaneCommandEdit => self.start_pane_command_edit(),
             InputAction::SaveAndQuit => {
                 self.save_session()?;
                 self.should_quit = true;
@@ -590,6 +592,7 @@ impl App {
             RenameState::Pane { buffer } => apply_rename_key(key, buffer),
             // Safety: ConfirmDeleteProject is handled and returns early above.
             RenameState::ConfirmDeleteProject => false,
+            RenameState::PaneCommand { buffer } => apply_rename_key(key, buffer),
         };
 
         if key.code == KeyCode::Enter {
@@ -633,6 +636,14 @@ impl App {
                 }
             }
             RenameState::ConfirmDeleteProject => {}
+            RenameState::PaneCommand { buffer } => {
+                let shell = buffer.trim().to_string();
+                if !shell.is_empty() {
+                    // apply_rename returns (); errors cannot propagate.
+                    // No logging crate is available, so we silently ignore failures.
+                    let _ = self.restart_active_pane_with_shell(shell);
+                }
+            }
         }
     }
 
@@ -880,6 +891,46 @@ impl App {
         // Immediately persist the updated session.
         self.save_session()?;
         self.resize_all_panes()
+    }
+
+    fn start_pane_command_edit(&mut self) {
+        let buffer = self
+            .active_terminal()
+            .map(|pane| pane.shell.clone())
+            .unwrap_or_else(crate::terminal::default_shell);
+        self.rename_state = RenameState::PaneCommand { buffer };
+    }
+
+    fn restart_active_pane_with_shell(&mut self, shell: String) -> Result<()> {
+        let ap = self.active_project;
+        let Some(project) = self.projects.get_mut(ap) else {
+            return Ok(());
+        };
+        let wi = project.active_window;
+        let Some(window) = project.windows.get_mut(wi) else {
+            return Ok(());
+        };
+        let pi = window.active_pane;
+        let Some(pane) = window.panes.get_mut(pi) else {
+            return Ok(());
+        };
+
+        let id = pane.id;
+        let name = pane.name.clone();
+        let cwd = pane.cwd.clone();
+
+        let new_pane = TerminalTab::spawn(
+            id,
+            name,
+            cwd,
+            shell,
+            self.terminal_cols,
+            self.terminal_rows,
+            self.output_tx.clone(),
+        )?;
+
+        *pane = new_pane;
+        Ok(())
     }
 
     fn active_window_mut(&mut self) -> Option<&mut WindowPage> {

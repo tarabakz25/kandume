@@ -7,6 +7,7 @@
 - feat(ui): add per-project status indicator in sidebar (`●` running/active, `○` all completed, `!` any failed) to surface PTY health at a glance. Closes #13.
 - feat(ui): render `┼` (cross) box-drawing characters at separator intersections, fixing incorrect `│`/`─` overwrites when panes are split both vertically and horizontally. Closes #14.
 - feat(session): add `Ctrl-b D` keybinding to delete the active project with a footer confirmation prompt; immediately persists the updated session to remove the entry from `session.toml`. Closes #8.
+- feat(app): add `Ctrl-b e` to edit the active pane's shell command; the current shell path is pre-filled in the footer editor and on Enter the PTY is killed and restarted with the new command. Closes #12.
 
 ## [0.1.2] - 2026-05-06
 

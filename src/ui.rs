@@ -59,9 +59,15 @@ fn draw_projects(frame: &mut Frame<'_>, app: &App, area: Rect) {
         .iter()
         .enumerate()
         .map(|(index, project)| {
-            let marker = if index == app.active_project { ">" } else { " " };
+            let marker = if index == app.active_project {
+                ">"
+            } else {
+                " "
+            };
             let label_style = if index == app.active_project {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Gray)
             };
@@ -459,6 +465,7 @@ fn draw_status(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 ),
             ])
         }
+        RenameState::PaneCommand { buffer } => rename_line("shell command: ", buffer),
         RenameState::Idle => {
             if app.prefix_active {
                 Line::from(vec![
@@ -467,7 +474,7 @@ fn draw_status(frame: &mut Frame<'_>, app: &App, area: Rect) {
                         Style::default().fg(Color::Black).bg(Color::Yellow),
                     ),
                     Span::raw(
-                        " t:project c:session %/\":split n/p:project [/]:session o/;:pane x:close-pane ,/./r:rename d:save+quit ?:help",
+                        " t:project c:session %/\":split n/p:project [/]:session o/;:pane x:close-pane ,/./r:rename D:delete e:edit-cmd d:save+quit ?:help",
                     ),
                 ])
             } else {
@@ -528,6 +535,7 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
         Line::from("Ctrl-b ,    rename project"),
         Line::from("Ctrl-b .    rename session"),
         Line::from("Ctrl-b r    rename pane"),
+        Line::from("Ctrl-b e    edit pane shell command"),
         Line::from("Ctrl-b d    save session and quit"),
         Line::from("Ctrl-b q    quit"),
         Line::from("Ctrl-b ?    toggle this help"),
