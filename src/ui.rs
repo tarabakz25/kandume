@@ -158,7 +158,18 @@ fn draw_pane_node(
     match node {
         PaneNode::Leaf(index) => {
             if let Some(pane) = window.panes.get(*index) {
-                draw_pane_leaf(frame, pane, *index == window.active_pane, area);
+                let is_active = *index == window.active_pane;
+                draw_pane_leaf(frame, pane, is_active, area);
+                if is_active {
+                    // Use LEFT|RIGHT|BOTTOM only so the top border does not
+                    // overwrite the title row drawn by draw_pane_leaf above.
+                    frame.render_widget(
+                        Block::default()
+                            .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
+                            .border_style(Style::default().fg(Color::Cyan)),
+                        area,
+                    );
+                }
             }
         }
         PaneNode::Split {
@@ -337,20 +348,31 @@ fn draw_status(frame: &mut Frame<'_>, app: &App, area: Rect) {
         RenameState::Window { buffer } => rename_line("rename session: ", buffer),
         RenameState::Pane { buffer } => rename_line("rename pane: ", buffer),
         RenameState::Idle => {
-            let prefix = if app.prefix_active {
-                Span::styled(
-                    "PREFIX ",
-                    Style::default().fg(Color::Black).bg(Color::Yellow),
-                )
+            if app.prefix_active {
+                Line::from(vec![
+                    Span::styled(
+                        "PREFIX ",
+                        Style::default().fg(Color::Black).bg(Color::Yellow),
+                    ),
+                    Span::raw(
+                        " t:project c:session %/\":split n/p:project [/]:session o/;:pane x:close-pane ,/./r:rename d:save+quit ?:help",
+                    ),
+                ])
             } else {
-                Span::styled("Ctrl-b", Style::default().fg(Color::Cyan))
-            };
-            Line::from(vec![
-                prefix,
-                Span::raw(
-                    " t:project c:session %/\":split n/p:project [/]:session o/;:pane x:close-pane ,/./r:rename d:save+quit ?:help",
-                ),
-            ])
+                Line::from(vec![
+                    Span::styled(
+                        " NORMAL ",
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        "  Ctrl-b for commands",
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ])
+            }
         }
     };
 
