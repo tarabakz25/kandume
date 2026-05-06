@@ -573,6 +573,8 @@ impl App {
         if matches!(self.rename_state, RenameState::ConfirmDeleteProject) {
             if key.code == KeyCode::Char('y') {
                 self.rename_state = RenameState::Idle;
+                // handle_rename_key returns bool; errors cannot propagate.
+                // No logging crate is available, so we silently ignore failures.
                 let _ = self.delete_active_project();
             } else {
                 self.rename_state = RenameState::Idle;
@@ -586,7 +588,8 @@ impl App {
             RenameState::Project { buffer } => apply_rename_key(key, buffer),
             RenameState::Window { buffer } => apply_rename_key(key, buffer),
             RenameState::Pane { buffer } => apply_rename_key(key, buffer),
-            RenameState::ConfirmDeleteProject => unreachable!(),
+            // Safety: ConfirmDeleteProject is handled and returns early above.
+            RenameState::ConfirmDeleteProject => false,
         };
 
         if key.code == KeyCode::Enter {
