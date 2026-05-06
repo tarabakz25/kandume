@@ -140,11 +140,20 @@ fn collect_separators(
 ) {
     match node {
         PaneNode::Leaf(_) => {}
-        PaneNode::Split { direction, ratio, first, second } => {
+        PaneNode::Split {
+            direction,
+            ratio,
+            first,
+            second,
+        } => {
             let (first_chunk, sep_chunk, second_chunk) =
                 layout::split_chunks(area, *direction, *ratio);
             let highlighted = hover_sep == Some(&[]);
-            let sep_color = if highlighted { Color::Yellow } else { Color::DarkGray };
+            let sep_color = if highlighted {
+                Color::Yellow
+            } else {
+                Color::DarkGray
+            };
 
             let first_hover: Option<&[WhichChild]> = match hover_sep {
                 Some([WhichChild::First, rest @ ..]) => Some(rest),
@@ -158,12 +167,22 @@ fn collect_separators(
             match direction {
                 SplitDirection::Vertical => {
                     if sep_chunk.width > 0 {
-                        vertical.push((sep_chunk.x, sep_chunk.y, sep_chunk.y + sep_chunk.height, sep_color));
+                        vertical.push((
+                            sep_chunk.x,
+                            sep_chunk.y,
+                            sep_chunk.y + sep_chunk.height,
+                            sep_color,
+                        ));
                     }
                 }
                 SplitDirection::Horizontal => {
                     if sep_chunk.height > 0 {
-                        horizontal.push((sep_chunk.y, sep_chunk.x, sep_chunk.x + sep_chunk.width, sep_color));
+                        horizontal.push((
+                            sep_chunk.y,
+                            sep_chunk.x,
+                            sep_chunk.x + sep_chunk.width,
+                            sep_color,
+                        ));
                     }
                 }
             }
@@ -188,7 +207,12 @@ fn draw_junctions(
                 };
                 frame.render_widget(
                     Paragraph::new(Span::styled("┼", Style::default().fg(color))),
-                    Rect { x, y, width: 1, height: 1 },
+                    Rect {
+                        x,
+                        y,
+                        width: 1,
+                        height: 1,
+                    },
                 );
             }
         }
@@ -210,7 +234,13 @@ fn draw_panes(
 
     let mut vertical = Vec::new();
     let mut horizontal = Vec::new();
-    collect_separators(&window.layout, area, hover_sep, &mut vertical, &mut horizontal);
+    collect_separators(
+        &window.layout,
+        area,
+        hover_sep,
+        &mut vertical,
+        &mut horizontal,
+    );
     draw_junctions(frame, &vertical, &horizontal);
 }
 
