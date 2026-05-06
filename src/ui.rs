@@ -348,20 +348,31 @@ fn draw_status(frame: &mut Frame<'_>, app: &App, area: Rect) {
         RenameState::Window { buffer } => rename_line("rename session: ", buffer),
         RenameState::Pane { buffer } => rename_line("rename pane: ", buffer),
         RenameState::Idle => {
-            let prefix = if app.prefix_active {
-                Span::styled(
-                    "PREFIX ",
-                    Style::default().fg(Color::Black).bg(Color::Yellow),
-                )
+            if app.prefix_active {
+                Line::from(vec![
+                    Span::styled(
+                        "PREFIX ",
+                        Style::default().fg(Color::Black).bg(Color::Yellow),
+                    ),
+                    Span::raw(
+                        " t:project c:session %/\":split n/p:project [/]:session o/;:pane x:close-pane ,/./r:rename d:save+quit ?:help",
+                    ),
+                ])
             } else {
-                Span::styled("Ctrl-b", Style::default().fg(Color::Cyan))
-            };
-            Line::from(vec![
-                prefix,
-                Span::raw(
-                    " t:project c:session %/\":split n/p:project [/]:session o/;:pane x:close-pane ,/./r:rename d:save+quit ?:help",
-                ),
-            ])
+                Line::from(vec![
+                    Span::styled(
+                        " NORMAL ",
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        "  Ctrl-b for commands",
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ])
+            }
         }
     };
 
