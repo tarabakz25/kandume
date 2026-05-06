@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+- feat(ui): highlight active pane with a cyan border overlay (`Block::border_style`) to visually distinguish the focused pane from inactive ones. Closes #9.
+- feat(ui): display `NORMAL` mode indicator (green badge) in footer when no prefix is active; keybinding hints are shown only after `Ctrl-b` prefix, matching tmux-style mode display. Closes #10.
+- feat(ui): add per-project status indicator in sidebar (`●` running/active, `○` all completed, `!` any failed) to surface PTY health at a glance. Closes #13.
+- feat(ui): render `┼` (cross) box-drawing characters at separator intersections, fixing incorrect `│`/`─` overwrites when panes are split both vertically and horizontally. Closes #14.
+- feat(session): add `Ctrl-b D` keybinding to delete the active project with a footer confirmation prompt; immediately persists the updated session to remove the entry from `session.toml`. Closes #8.
+
 ## [0.1.2] - 2026-05-06
 
 - fix(mouse): do not forward SGR mouse bytes to PTY unless the child app has enabled a mouse protocol mode (`?1000h` / `?1002h` / `?1003h`). Clicks on a plain shell previously printed `0;col;rowM3;col;rowm` garbage; now only apps that requested mouse tracking receive the encoded events. The same guard applies to drag, release, and scroll events.

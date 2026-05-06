@@ -2,6 +2,10 @@
 
 A terminal multiplexer built with [Ratatui](https://github.com/ratatui-org/ratatui). Organizes work into a **project → session → pane** hierarchy and uses a [tmux](https://github.com/tmux/tmux)-style **Ctrl-b prefix** for keybindings. Each pane runs a real shell backed by a PTY.
 
+
+https://github.com/user-attachments/assets/5b7d5089-4428-4345-95ed-b54d2be4c819
+
+
 ## Requirements
 
 - Rust toolchain (built with the 2024 edition)

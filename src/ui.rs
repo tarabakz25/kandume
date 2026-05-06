@@ -59,26 +59,23 @@ fn draw_projects(frame: &mut Frame<'_>, app: &App, area: Rect) {
         .iter()
         .enumerate()
         .map(|(index, project)| {
-            let marker = if index == app.active_project {
-                ">"
-            } else {
-                " "
-            };
-            let style = if index == app.active_project {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
+            let marker = if index == app.active_project { ">" } else { " " };
+            let label_style = if index == app.active_project {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Gray)
             };
             let session_count = project.windows.len();
-            ListItem::new(Line::from(format!(
-                "{marker} {} {}  {} sessions",
-                index + 1,
-                project.name,
-                session_count
-            )))
-            .style(style)
+            let (indicator, indicator_color) = project_status_indicator(project);
+            let line = Line::from(vec![
+                Span::styled(format!("{marker} {} ", index + 1), label_style),
+                Span::styled(indicator, Style::default().fg(indicator_color)),
+                Span::styled(
+                    format!(" {}  {} sessions", project.name, session_count),
+                    label_style,
+                ),
+            ]);
+            ListItem::new(line)
         })
         .collect();
 
@@ -134,6 +131,94 @@ fn draw_windows(frame: &mut Frame<'_>, app: &App, area: Rect) {
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
+fn collect_separators(
+    node: &PaneNode,
+    area: Rect,
+    hover_sep: Option<&[WhichChild]>,
+    vertical: &mut Vec<(u16, u16, u16, Color)>,
+    horizontal: &mut Vec<(u16, u16, u16, Color)>,
+) {
+    match node {
+        PaneNode::Leaf(_) => {}
+        PaneNode::Split {
+            direction,
+            ratio,
+            first,
+            second,
+        } => {
+            let (first_chunk, sep_chunk, second_chunk) =
+                layout::split_chunks(area, *direction, *ratio);
+            let highlighted = hover_sep == Some(&[]);
+            let sep_color = if highlighted {
+                Color::Yellow
+            } else {
+                Color::DarkGray
+            };
+
+            let first_hover: Option<&[WhichChild]> = match hover_sep {
+                Some([WhichChild::First, rest @ ..]) => Some(rest),
+                _ => None,
+            };
+            let second_hover: Option<&[WhichChild]> = match hover_sep {
+                Some([WhichChild::Second, rest @ ..]) => Some(rest),
+                _ => None,
+            };
+
+            match direction {
+                SplitDirection::Vertical => {
+                    if sep_chunk.width > 0 {
+                        vertical.push((
+                            sep_chunk.x,
+                            sep_chunk.y,
+                            sep_chunk.y + sep_chunk.height,
+                            sep_color,
+                        ));
+                    }
+                }
+                SplitDirection::Horizontal => {
+                    if sep_chunk.height > 0 {
+                        horizontal.push((
+                            sep_chunk.y,
+                            sep_chunk.x,
+                            sep_chunk.x + sep_chunk.width,
+                            sep_color,
+                        ));
+                    }
+                }
+            }
+            collect_separators(first, first_chunk, first_hover, vertical, horizontal);
+            collect_separators(second, second_chunk, second_hover, vertical, horizontal);
+        }
+    }
+}
+
+fn draw_junctions(
+    frame: &mut Frame<'_>,
+    vertical: &[(u16, u16, u16, Color)],
+    horizontal: &[(u16, u16, u16, Color)],
+) {
+    for &(x, y_start, y_end, v_color) in vertical {
+        for &(y, x_start, x_end, h_color) in horizontal {
+            if y >= y_start && y < y_end && x >= x_start && x < x_end {
+                let color = if v_color == Color::Yellow || h_color == Color::Yellow {
+                    Color::Yellow
+                } else {
+                    Color::DarkGray
+                };
+                frame.render_widget(
+                    Paragraph::new(Span::styled("┼", Style::default().fg(color))),
+                    Rect {
+                        x,
+                        y,
+                        width: 1,
+                        height: 1,
+                    },
+                );
+            }
+        }
+    }
+}
+
 fn draw_panes(
     frame: &mut Frame<'_>,
     window: &WindowPage,
@@ -146,6 +231,17 @@ fn draw_panes(
     }
 
     draw_pane_node(frame, window, &window.layout, hover_sep, area);
+
+    let mut vertical = Vec::new();
+    let mut horizontal = Vec::new();
+    collect_separators(
+        &window.layout,
+        area,
+        hover_sep,
+        &mut vertical,
+        &mut horizontal,
+    );
+    draw_junctions(frame, &vertical, &horizontal);
 }
 
 fn draw_pane_node(
@@ -158,7 +254,18 @@ fn draw_pane_node(
     match node {
         PaneNode::Leaf(index) => {
             if let Some(pane) = window.panes.get(*index) {
-                draw_pane_leaf(frame, pane, *index == window.active_pane, area);
+                let is_active = *index == window.active_pane;
+                draw_pane_leaf(frame, pane, is_active, area);
+                if is_active {
+                    // Use LEFT|RIGHT|BOTTOM only so the top border does not
+                    // overwrite the title row drawn by draw_pane_leaf above.
+                    frame.render_widget(
+                        Block::default()
+                            .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
+                            .border_style(Style::default().fg(Color::Cyan)),
+                        area,
+                    );
+                }
             }
         }
         PaneNode::Split {
@@ -336,21 +443,48 @@ fn draw_status(frame: &mut Frame<'_>, app: &App, area: Rect) {
         RenameState::Project { buffer } => rename_line("rename project: ", buffer),
         RenameState::Window { buffer } => rename_line("rename session: ", buffer),
         RenameState::Pane { buffer } => rename_line("rename pane: ", buffer),
-        RenameState::Idle => {
-            let prefix = if app.prefix_active {
-                Span::styled(
-                    "PREFIX ",
-                    Style::default().fg(Color::Black).bg(Color::Yellow),
-                )
-            } else {
-                Span::styled("Ctrl-b", Style::default().fg(Color::Cyan))
-            };
+        RenameState::ConfirmDeleteProject => {
+            let project_name = app
+                .active_project()
+                .map(|p| p.name.as_str())
+                .unwrap_or("project");
             Line::from(vec![
-                prefix,
-                Span::raw(
-                    " t:project c:session %/\":split n/p:project [/]:session o/;:pane x:close-pane ,/./r:rename d:save+quit ?:help",
+                Span::styled(
+                    format!("delete project '{project_name}'?"),
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "  y=yes  any other key=cancel",
+                    Style::default().fg(Color::DarkGray),
                 ),
             ])
+        }
+        RenameState::Idle => {
+            if app.prefix_active {
+                Line::from(vec![
+                    Span::styled(
+                        "PREFIX ",
+                        Style::default().fg(Color::Black).bg(Color::Yellow),
+                    ),
+                    Span::raw(
+                        " t:project c:session %/\":split n/p:project [/]:session o/;:pane x:close-pane ,/./r:rename d:save+quit ?:help",
+                    ),
+                ])
+            } else {
+                Line::from(vec![
+                    Span::styled(
+                        " NORMAL ",
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        "  Ctrl-b for commands",
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ])
+            }
         }
     };
 
@@ -405,6 +539,26 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
 
     frame.render_widget(Clear, area);
     frame.render_widget(Paragraph::new(text).block(block), area);
+}
+
+/// Returns (indicator_char, style_color) for the project's aggregate PTY status.
+fn project_status_indicator(project: &crate::app::Project) -> (&'static str, Color) {
+    let statuses: Vec<TerminalStatus> = project
+        .windows
+        .iter()
+        .flat_map(|w| w.panes.iter().map(|p| p.status()))
+        .collect();
+
+    if statuses.is_empty() {
+        return ("○", Color::DarkGray);
+    }
+    if statuses.iter().any(|s| *s == TerminalStatus::Failed) {
+        return ("!", Color::Red);
+    }
+    if statuses.iter().all(|s| *s == TerminalStatus::Completed) {
+        return ("○", Color::Green);
+    }
+    ("●", Color::Green)
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
