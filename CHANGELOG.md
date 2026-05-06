@@ -6,6 +6,7 @@
 - feat(ui): display `NORMAL` mode indicator (green badge) in footer when no prefix is active; keybinding hints are shown only after `Ctrl-b` prefix, matching tmux-style mode display. Closes #10.
 - feat(ui): add per-project status indicator in sidebar (`●` running/active, `○` all completed, `!` any failed) to surface PTY health at a glance. Closes #13.
 - feat(ui): render `┼` (cross) box-drawing characters at separator intersections, fixing incorrect `│`/`─` overwrites when panes are split both vertically and horizontally. Closes #14.
+- feat(session): add `Ctrl-b D` keybinding to delete the active project with a footer confirmation prompt; immediately persists the updated session to remove the entry from `session.toml`. Closes #8.
 
 ## [0.1.2] - 2026-05-06
 
