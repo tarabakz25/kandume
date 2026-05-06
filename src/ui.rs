@@ -443,6 +443,22 @@ fn draw_status(frame: &mut Frame<'_>, app: &App, area: Rect) {
         RenameState::Project { buffer } => rename_line("rename project: ", buffer),
         RenameState::Window { buffer } => rename_line("rename session: ", buffer),
         RenameState::Pane { buffer } => rename_line("rename pane: ", buffer),
+        RenameState::ConfirmDeleteProject => {
+            let project_name = app
+                .active_project()
+                .map(|p| p.name.as_str())
+                .unwrap_or("project");
+            Line::from(vec![
+                Span::styled(
+                    format!("delete project '{project_name}'?"),
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "  y=yes  any other key=cancel",
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ])
+        }
         RenameState::Idle => {
             if app.prefix_active {
                 Line::from(vec![

@@ -29,6 +29,7 @@ pub(crate) enum RenameState {
     Project { buffer: String },
     Window { buffer: String },
     Pane { buffer: String },
+    ConfirmDeleteProject,
 }
 
 pub(crate) struct Project {
@@ -270,6 +271,7 @@ impl App {
             InputAction::StartProjectRename => self.start_project_rename(),
             InputAction::StartWindowRename => self.start_window_rename(),
             InputAction::StartPaneRename => self.start_pane_rename(),
+            InputAction::DeleteProject => self.start_confirm_delete_project(),
             InputAction::SaveAndQuit => {
                 self.save_session()?;
                 self.should_quit = true;
@@ -567,12 +569,24 @@ impl App {
     }
 
     fn handle_rename_key(&mut self, key: KeyEvent) -> bool {
+        // Handle confirmation dialog separately (needs its own close logic).
+        if matches!(self.rename_state, RenameState::ConfirmDeleteProject) {
+            if key.code == KeyCode::Char('y') {
+                self.rename_state = RenameState::Idle;
+                let _ = self.delete_active_project();
+            } else {
+                self.rename_state = RenameState::Idle;
+            }
+            return true;
+        }
+
         let should_close = matches!(key.code, KeyCode::Enter | KeyCode::Esc);
         let handled = match &mut self.rename_state {
             RenameState::Idle => false,
             RenameState::Project { buffer } => apply_rename_key(key, buffer),
             RenameState::Window { buffer } => apply_rename_key(key, buffer),
             RenameState::Pane { buffer } => apply_rename_key(key, buffer),
+            RenameState::ConfirmDeleteProject => unreachable!(),
         };
 
         if key.code == KeyCode::Enter {
@@ -615,6 +629,7 @@ impl App {
                     pane.name = name.to_string();
                 }
             }
+            RenameState::ConfirmDeleteProject => {}
         }
     }
 
@@ -840,6 +855,28 @@ impl App {
             .map(|pane| pane.name.clone())
             .unwrap_or_default();
         self.rename_state = RenameState::Pane { buffer };
+    }
+
+    fn start_confirm_delete_project(&mut self) {
+        if !self.projects.is_empty() {
+            self.rename_state = RenameState::ConfirmDeleteProject;
+        }
+    }
+
+    fn delete_active_project(&mut self) -> Result<()> {
+        if self.projects.is_empty() {
+            return Ok(());
+        }
+        self.projects.remove(self.active_project);
+        if self.projects.is_empty() {
+            // Must always have at least one project; create a default one.
+            self.new_project()?;
+        } else {
+            self.active_project = self.active_project.min(self.projects.len() - 1);
+        }
+        // Immediately persist the updated session.
+        self.save_session()?;
+        self.resize_all_panes()
     }
 
     fn active_window_mut(&mut self) -> Option<&mut WindowPage> {

@@ -18,6 +18,7 @@ pub(crate) enum InputAction {
     StartProjectRename,
     StartWindowRename,
     StartPaneRename,
+    DeleteProject,
     SaveAndQuit,
     Quit,
     ToggleHelp,
@@ -49,6 +50,7 @@ impl InputState {
                 KeyCode::Char('.') => InputAction::StartWindowRename,
                 KeyCode::Char('r') => InputAction::StartPaneRename,
                 KeyCode::Char('d') => InputAction::SaveAndQuit,
+                KeyCode::Char('D') => InputAction::DeleteProject,
                 KeyCode::Char('q') => InputAction::Quit,
                 KeyCode::Char('?') => InputAction::ToggleHelp,
                 KeyCode::Char(ch) if ('1'..='9').contains(&ch) => {
