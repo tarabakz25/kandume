@@ -59,26 +59,23 @@ fn draw_projects(frame: &mut Frame<'_>, app: &App, area: Rect) {
         .iter()
         .enumerate()
         .map(|(index, project)| {
-            let marker = if index == app.active_project {
-                ">"
-            } else {
-                " "
-            };
-            let style = if index == app.active_project {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
+            let marker = if index == app.active_project { ">" } else { " " };
+            let label_style = if index == app.active_project {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Gray)
             };
             let session_count = project.windows.len();
-            ListItem::new(Line::from(format!(
-                "{marker} {} {}  {} sessions",
-                index + 1,
-                project.name,
-                session_count
-            )))
-            .style(style)
+            let (indicator, indicator_color) = project_status_indicator(project);
+            let line = Line::from(vec![
+                Span::styled(format!("{marker} {} ", index + 1), label_style),
+                Span::styled(indicator, Style::default().fg(indicator_color)),
+                Span::styled(
+                    format!(" {}  {} sessions", project.name, session_count),
+                    label_style,
+                ),
+            ]);
+            ListItem::new(line)
         })
         .collect();
 
@@ -427,6 +424,26 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
 
     frame.render_widget(Clear, area);
     frame.render_widget(Paragraph::new(text).block(block), area);
+}
+
+/// Returns (indicator_char, style_color) for the project's aggregate PTY status.
+fn project_status_indicator(project: &crate::app::Project) -> (&'static str, Color) {
+    let statuses: Vec<TerminalStatus> = project
+        .windows
+        .iter()
+        .flat_map(|w| w.panes.iter().map(|p| p.status()))
+        .collect();
+
+    if statuses.is_empty() {
+        return ("○", Color::DarkGray);
+    }
+    if statuses.iter().any(|s| *s == TerminalStatus::Failed) {
+        return ("!", Color::Red);
+    }
+    if statuses.iter().all(|s| *s == TerminalStatus::Completed) {
+        return ("○", Color::Green);
+    }
+    ("●", Color::Green)
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
