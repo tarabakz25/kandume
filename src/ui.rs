@@ -64,7 +64,7 @@ fn draw_projects(frame: &mut Frame<'_>, app: &App, area: Rect) {
             } else {
                 " "
             };
-            let style = if index == app.active_project {
+            let label_style = if index == app.active_project {
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD)
@@ -72,13 +72,16 @@ fn draw_projects(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 Style::default().fg(Color::Gray)
             };
             let session_count = project.windows.len();
-            ListItem::new(Line::from(format!(
-                "{marker} {} {}  {} sessions",
-                index + 1,
-                project.name,
-                session_count
-            )))
-            .style(style)
+            let (indicator, indicator_color) = project_status_indicator(project);
+            let line = Line::from(vec![
+                Span::styled(format!("{marker} {} ", index + 1), label_style),
+                Span::styled(indicator, Style::default().fg(indicator_color)),
+                Span::styled(
+                    format!(" {}  {} sessions", project.name, session_count),
+                    label_style,
+                ),
+            ]);
+            ListItem::new(line)
         })
         .collect();
 
@@ -158,7 +161,8 @@ fn draw_pane_node(
     match node {
         PaneNode::Leaf(index) => {
             if let Some(pane) = window.panes.get(*index) {
-                draw_pane_leaf(frame, pane, *index == window.active_pane, area);
+                let is_active = *index == window.active_pane;
+                draw_pane_leaf(frame, pane, is_active, area);
             }
         }
         PaneNode::Split {
@@ -183,8 +187,12 @@ fn draw_pane_node(
                 _ => None,
             };
 
+            let active_adjacent = pane_node_contains_active(first, window.active_pane)
+                || pane_node_contains_active(second, window.active_pane);
             let sep_color = if highlighted {
                 Color::Yellow
+            } else if active_adjacent {
+                Color::Cyan
             } else {
                 Color::DarkGray
             };
@@ -215,6 +223,16 @@ fn draw_pane_node(
                     draw_pane_node(frame, window, second, second_hover, second_chunk);
                 }
             }
+        }
+    }
+}
+
+fn pane_node_contains_active(node: &PaneNode, active_pane: usize) -> bool {
+    match node {
+        PaneNode::Leaf(index) => *index == active_pane,
+        PaneNode::Split { first, second, .. } => {
+            pane_node_contains_active(first, active_pane)
+                || pane_node_contains_active(second, active_pane)
         }
     }
 }
@@ -337,20 +355,31 @@ fn draw_status(frame: &mut Frame<'_>, app: &App, area: Rect) {
         RenameState::Window { buffer } => rename_line("rename session: ", buffer),
         RenameState::Pane { buffer } => rename_line("rename pane: ", buffer),
         RenameState::Idle => {
-            let prefix = if app.prefix_active {
-                Span::styled(
-                    "PREFIX ",
-                    Style::default().fg(Color::Black).bg(Color::Yellow),
-                )
+            if app.prefix_active {
+                Line::from(vec![
+                    Span::styled(
+                        "PREFIX ",
+                        Style::default().fg(Color::Black).bg(Color::Yellow),
+                    ),
+                    Span::raw(
+                        " t:project c:session %/\":split n/p:project [/]:session o/;:pane x:close-pane ,/./r:rename d:save+quit ?:help",
+                    ),
+                ])
             } else {
-                Span::styled("Ctrl-b", Style::default().fg(Color::Cyan))
-            };
-            Line::from(vec![
-                prefix,
-                Span::raw(
-                    " t:project c:session %/\":split n/p:project [/]:session o/;:pane x:close-pane ,/./r:rename d:save+quit ?:help",
-                ),
-            ])
+                Line::from(vec![
+                    Span::styled(
+                        " NORMAL ",
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        "  Ctrl-b for commands",
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ])
+            }
         }
     };
 
@@ -405,6 +434,26 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
 
     frame.render_widget(Clear, area);
     frame.render_widget(Paragraph::new(text).block(block), area);
+}
+
+/// Returns (indicator_char, style_color) for the project's aggregate PTY status.
+fn project_status_indicator(project: &crate::app::Project) -> (&'static str, Color) {
+    let statuses: Vec<TerminalStatus> = project
+        .windows
+        .iter()
+        .flat_map(|w| w.panes.iter().map(|p| p.status()))
+        .collect();
+
+    if statuses.is_empty() {
+        return ("○", Color::DarkGray);
+    }
+    if statuses.contains(&TerminalStatus::Failed) {
+        return ("!", Color::Red);
+    }
+    if statuses.iter().all(|s| *s == TerminalStatus::Completed) {
+        return ("○", Color::Green);
+    }
+    ("●", Color::Green)
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {

@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+- fix(ui): replace `iter().any(|s| *s == ...)` with `contains(...)` to satisfy `clippy::manual_contains` lint.
+- feat(ui): highlight active pane title and adjacent split separators in cyan to visually distinguish the focused pane without drawing duplicate borders. Closes #9.
+- fix(ui): remove the active pane border overlay so pane borders render as a single line instead of double lines.
+- feat(ui): display `NORMAL` mode indicator (green badge) in footer when no prefix is active; keybinding hints are shown only after `Ctrl-b` prefix, matching tmux-style mode display. Closes #10.
+- feat(ui): add per-project status indicator in sidebar (`●` running/active, `○` all completed, `!` any failed) to surface PTY health at a glance. Closes #13.
+
 ## [0.1.2] - 2026-05-06
 
 - fix(mouse): do not forward SGR mouse bytes to PTY unless the child app has enabled a mouse protocol mode (`?1000h` / `?1002h` / `?1003h`). Clicks on a plain shell previously printed `0;col;rowM3;col;rowm` garbage; now only apps that requested mouse tracking receive the encoded events. The same guard applies to drag, release, and scroll events.
