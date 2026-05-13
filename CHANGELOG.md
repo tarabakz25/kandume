@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- fix(ui): replace `iter().any(|s| *s == ...)` with `contains(...)` to satisfy `clippy::manual_contains` lint.
 - feat(ui): highlight active pane title and adjacent split separators in cyan to visually distinguish the focused pane without drawing duplicate borders. Closes #9.
 - fix(ui): remove the active pane border overlay so pane borders render as a single line instead of double lines.
 - feat(ui): display `NORMAL` mode indicator (green badge) in footer when no prefix is active; keybinding hints are shown only after `Ctrl-b` prefix, matching tmux-style mode display. Closes #10.

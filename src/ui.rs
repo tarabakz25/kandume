@@ -447,7 +447,7 @@ fn project_status_indicator(project: &crate::app::Project) -> (&'static str, Col
     if statuses.is_empty() {
         return ("○", Color::DarkGray);
     }
-    if statuses.iter().any(|s| *s == TerminalStatus::Failed) {
+    if statuses.contains(&TerminalStatus::Failed) {
         return ("!", Color::Red);
     }
     if statuses.iter().all(|s| *s == TerminalStatus::Completed) {
