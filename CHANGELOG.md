@@ -2,7 +2,8 @@
 
 ## [Unreleased]
 
-- feat(ui): highlight active pane with a cyan border overlay (`Block::border_style`) to visually distinguish the focused pane from inactive ones. Closes #9.
+- feat(ui): highlight active pane title and adjacent split separators in cyan to visually distinguish the focused pane without drawing duplicate borders. Closes #9.
+- fix(ui): remove the active pane border overlay so pane borders render as a single line instead of double lines.
 - feat(ui): display `NORMAL` mode indicator (green badge) in footer when no prefix is active; keybinding hints are shown only after `Ctrl-b` prefix, matching tmux-style mode display. Closes #10.
 - feat(ui): add per-project status indicator in sidebar (`●` running/active, `○` all completed, `!` any failed) to surface PTY health at a glance. Closes #13.
 

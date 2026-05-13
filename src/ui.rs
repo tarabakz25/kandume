@@ -59,9 +59,15 @@ fn draw_projects(frame: &mut Frame<'_>, app: &App, area: Rect) {
         .iter()
         .enumerate()
         .map(|(index, project)| {
-            let marker = if index == app.active_project { ">" } else { " " };
+            let marker = if index == app.active_project {
+                ">"
+            } else {
+                " "
+            };
             let label_style = if index == app.active_project {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Gray)
             };
@@ -157,16 +163,6 @@ fn draw_pane_node(
             if let Some(pane) = window.panes.get(*index) {
                 let is_active = *index == window.active_pane;
                 draw_pane_leaf(frame, pane, is_active, area);
-                if is_active {
-                    // Use LEFT|RIGHT|BOTTOM only so the top border does not
-                    // overwrite the title row drawn by draw_pane_leaf above.
-                    frame.render_widget(
-                        Block::default()
-                            .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
-                            .border_style(Style::default().fg(Color::Cyan)),
-                        area,
-                    );
-                }
             }
         }
         PaneNode::Split {
@@ -191,8 +187,12 @@ fn draw_pane_node(
                 _ => None,
             };
 
+            let active_adjacent = pane_node_contains_active(first, window.active_pane)
+                || pane_node_contains_active(second, window.active_pane);
             let sep_color = if highlighted {
                 Color::Yellow
+            } else if active_adjacent {
+                Color::Cyan
             } else {
                 Color::DarkGray
             };
@@ -223,6 +223,16 @@ fn draw_pane_node(
                     draw_pane_node(frame, window, second, second_hover, second_chunk);
                 }
             }
+        }
+    }
+}
+
+fn pane_node_contains_active(node: &PaneNode, active_pane: usize) -> bool {
+    match node {
+        PaneNode::Leaf(index) => *index == active_pane,
+        PaneNode::Split { first, second, .. } => {
+            pane_node_contains_active(first, active_pane)
+                || pane_node_contains_active(second, active_pane)
         }
     }
 }
